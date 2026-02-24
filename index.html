@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DispatchIQ -- Field Service Scheduler | Old North Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --ona-dark:    #22493D;
+  --ona-mid:     #537C6F;
+  --ona-accent:  #2e7d5e;
+  --ona-light:   #EAF6F2;
+  --ona-border:  #c8ddd8;
+  --bg:          #f5f7f6;
+  --surface:     #ffffff;
+  --surface2:    #f0f4f2;
+  --surface3:    #e8efed;
+  --border:      #d4e0dc;
+  --border2:     #bccfc9;
+  --text:        #1a2e26;
+  --text-2:      #4a6b5e;
+  --text-3:      #7a9e92;
+  --crew-a:      #2e8b57;
+  --crew-b:      #2563eb;
+  --crew-c:      #d97706;
+  --crew-d:      #dc2626;
+  --font:        'Inter', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100vh; overflow:hidden; font-family:var(--font); font-size:13px; background:var(--bg); color:var(--text); }
+
+/* ---- TOPBAR ---- */
+.topbar {
+  height:52px; background:var(--ona-dark); border-bottom:1px solid #1a3830;
+  display:flex; align-items:center; justify-content:space-between; padding:0 20px; flex-shrink:0; z-index:200;
+}
+.topbar-brand { font-family:var(--font); font-size:15px; font-weight:600; color:#fff; letter-spacing:-.01em; }
+.topbar-sub { font-size:11px; color:rgba(255,255,255,.5); font-weight:400; margin-left:10px; }
+.topbar-center { display:flex; align-items:center; gap:28px; }
+.topbar-stat { display:flex; flex-direction:column; align-items:center; }
+.ts-label { font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:rgba(255,255,255,.45); }
+.ts-val { font-size:14px; font-weight:600; color:#fff; line-height:1.2; }
+.ts-val.green { color:#6ee7b7; }
+.ts-val.blue { color:#93c5fd; }
+.topbar-divider { width:1px; height:24px; background:rgba(255,255,255,.15); }
+.demo-pill {
+  font-size:9px; letter-spacing:.08em; text-transform:uppercase;
+  padding:3px 10px; border:1px solid rgba(255,255,255,.25); color:rgba(255,255,255,.6); background:rgba(255,255,255,.08);
+}
+
+/* ---- LAYOUT ---- */
+.app { display:flex; flex-direction:column; height:100vh; }
+.main { display:grid; grid-template-columns:268px 1fr 360px; flex:1; overflow:hidden; min-height:0; }
+
+/* ---- PANELS ---- */
+.left-panel { background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+.right-panel { background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+
+.panel-hdr {
+  padding:7px 12px; background:var(--surface2); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
+}
+.panel-hdr-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text-3); }
+.panel-hdr-ct { font-size:11px; font-weight:600; color:var(--ona-accent); }
+
+/* Config bar */
+.config-bar { padding:10px 12px; border-bottom:1px solid var(--border); background:var(--surface); flex-shrink:0; }
+.cfg-row { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+.cfg-row:last-child { margin-bottom:0; }
+.cfg-label { font-size:11px; color:var(--text-2); flex:1; font-weight:500; }
+.cfg-input {
+  width:56px; background:var(--surface2); border:1px solid var(--border2); color:var(--text);
+  font-family:var(--font); font-size:13px; font-weight:600; text-align:center; padding:3px 4px; outline:none;
+}
+.cfg-input:focus { border-color:var(--ona-mid); }
+.cfg-unit { font-size:11px; color:var(--text-3); }
+
+/* Crew cards */
+.crew-scroll { flex:1; overflow-y:auto; }
+.crew-card { padding:9px 12px; border-bottom:1px solid var(--border); }
+.crew-hdr { display:flex; align-items:center; gap:7px; margin-bottom:5px; }
+.crew-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.crew-name { font-weight:600; font-size:12px; flex:1; color:var(--text); }
+.crew-lead { font-size:10px; color:var(--text-3); font-weight:400; }
+.crew-pct { font-size:10px; font-weight:600; padding:1px 6px; border-radius:10px; }
+.skills-row { display:flex; flex-wrap:wrap; gap:3px; margin-bottom:5px; }
+.skill { font-size:9px; padding:2px 6px; background:var(--ona-light); border:1px solid var(--ona-border); color:var(--ona-dark); font-weight:500; border-radius:2px; }
+.load-row { display:flex; align-items:center; gap:7px; }
+.load-bg { flex:1; height:4px; background:var(--surface3); border-radius:2px; overflow:hidden; }
+.load-fill { height:100%; border-radius:2px; transition:width .5s ease; }
+.load-pct { font-size:10px; color:var(--text-3); width:28px; text-align:right; }
+
+/* ---- CENTER ---- */
+.center { display:flex; flex-direction:column; overflow:hidden; }
+
+/* Objectives bar */
+.obj-bar {
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:8px 14px; display:flex; align-items:center; gap:10px; flex-shrink:0;
+}
+.obj-bar-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text-3); white-space:nowrap; }
+.objs { display:flex; gap:6px; flex-wrap:wrap; flex:1; }
+.obj {
+  display:flex; flex-direction:column; gap:2px; padding:5px 9px;
+  background:var(--surface2); border:1px solid var(--border); cursor:pointer; min-width:108px; transition:border-color .15s; border-radius:3px;
+}
+.obj:hover { border-color:var(--ona-mid); }
+.obj-name { font-size:10px; color:var(--text-2); font-weight:500; }
+.obj-weight-row { display:flex; align-items:center; gap:4px; }
+.obj-weight-inp {
+  width:36px; background:var(--surface); border:1px solid var(--border2); color:var(--ona-accent);
+  font-family:var(--font); font-size:11px; font-weight:700; text-align:center; padding:1px 2px; outline:none; border-radius:2px;
+}
+.obj-weight-inp:focus { border-color:var(--ona-mid); }
+.obj-weight-label { font-size:9px; color:var(--text-3); }
+.obj-bar-fill { height:2px; background:var(--border); border-radius:1px; overflow:hidden; }
+.obj-bar-inner { height:100%; background:var(--ona-accent); transition:width .3s; }
+.run-btn {
+  background:var(--ona-dark); border:none; color:#fff;
+  font-family:var(--font); font-size:11px; font-weight:600; letter-spacing:.05em; text-transform:uppercase;
+  padding:8px 20px; cursor:pointer; transition:all .2s; white-space:nowrap; flex-shrink:0; border-radius:3px;
+}
+.run-btn:hover { background:var(--ona-mid); }
+.run-btn.busy { opacity:.5; cursor:not-allowed; }
+
+/* Map */
+.map-wrap { flex:1; position:relative; overflow:hidden; min-height:0; }
+#map { width:100%; height:100%; }
+
+.map-ctrl {
+  position:absolute; bottom:14px; left:14px; z-index:1000; background:var(--surface);
+  border:1px solid var(--border); padding:10px 13px; min-width:250px; border-radius:4px;
+  box-shadow:0 2px 12px rgba(0,0,0,.08);
+}
+.mc-label { font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-3); display:flex; justify-content:space-between; margin-bottom:5px; font-weight:600; }
+.mc-time { color:var(--ona-accent); font-size:13px; font-weight:700; }
+.mc-slider { width:100%; appearance:none; height:3px; background:var(--border2); outline:none; border-radius:2px; margin-bottom:7px; }
+.mc-slider::-webkit-slider-thumb { appearance:none; width:13px; height:13px; border-radius:50%; background:var(--ona-accent); cursor:pointer; border:2px solid #fff; box-shadow:0 1px 4px rgba(0,0,0,.2); }
+.mc-btns { display:flex; gap:5px; }
+.mc-btn {
+  flex:1; background:var(--surface2); border:1px solid var(--border); color:var(--text-2);
+  font-family:var(--font); font-size:9px; font-weight:600; padding:4px 2px; cursor:pointer; transition:all .15s; text-align:center; border-radius:2px;
+}
+.mc-btn:hover { border-color:var(--ona-mid); color:var(--ona-accent); background:var(--ona-light); }
+
+.map-legend {
+  position:absolute; top:14px; right:14px; z-index:1000; background:var(--surface);
+  border:1px solid var(--border); padding:8px 12px; border-radius:4px; box-shadow:0 2px 12px rgba(0,0,0,.08);
+}
+.ml-title { font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text-3); margin-bottom:6px; }
+.ml-item { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--text-2); margin-bottom:3px; font-weight:500; }
+.ml-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+/* Timeline */
+.timeline { background:var(--surface); border-top:1px solid var(--border); flex-shrink:0; height:128px; }
+.tl-hdr {
+  padding:5px 14px; border-bottom:1px solid var(--border); background:var(--surface2);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.tl-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--text-3); }
+.tl-body { padding:6px 14px; overflow-x:auto; height:calc(100% - 28px); }
+.tl-grid { min-width:700px; }
+.tl-axis { display:flex; margin-left:78px; margin-bottom:3px; }
+.tl-hour { font-size:9px; color:var(--text-3); flex:1; font-weight:500; }
+.tl-row { display:flex; align-items:center; margin-bottom:3px; height:18px; }
+.tl-crew-label { width:78px; font-size:10px; font-weight:600; color:var(--text-2); display:flex; align-items:center; gap:4px; flex-shrink:0; }
+.tl-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.tl-track { flex:1; height:16px; background:var(--surface3); border:1px solid var(--border); position:relative; overflow:hidden; border-radius:2px; }
+.tl-block {
+  position:absolute; height:100%; display:flex; align-items:center; justify-content:center;
+  font-size:8px; overflow:hidden; white-space:nowrap; cursor:pointer; font-weight:600;
+}
+.tl-drive { opacity:.18 !important; background:repeating-linear-gradient(45deg,transparent,transparent 2px,rgba(0,0,0,.06) 2px,rgba(0,0,0,.06) 4px) !important; }
+
+/* ---- RIGHT PANEL ---- */
+.tab-bar {
+  display:flex; background:var(--surface2); border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.tab-btn {
+  flex:1; padding:8px 10px; font-size:11px; font-weight:600; text-align:center; cursor:pointer;
+  color:var(--text-3); border-bottom:2px solid transparent; transition:all .15s; background:none; border-top:none; border-left:none; border-right:none;
+}
+.tab-btn.active { color:var(--ona-accent); border-bottom-color:var(--ona-accent); background:var(--surface); }
+.tab-btn:hover:not(.active) { color:var(--text-2); background:var(--border); }
+.tab-content { flex:1; overflow:hidden; display:none; flex-direction:column; }
+.tab-content.active { display:flex; }
+
+/* Job list */
+.margin-bar {
+  padding:8px 12px; border-bottom:1px solid var(--border); background:var(--surface2);
+  display:flex; align-items:center; gap:8px; flex-shrink:0;
+}
+.margin-label { font-size:11px; font-weight:500; color:var(--text-2); flex:1; }
+.margin-input {
+  width:48px; background:var(--surface); border:1px solid var(--border2); color:var(--ona-accent);
+  font-family:var(--font); font-size:13px; font-weight:700; text-align:center; padding:2px 4px; outline:none; border-radius:2px;
+}
+.margin-input:focus { border-color:var(--ona-mid); }
+.margin-pct { font-size:11px; color:var(--text-3); }
+.job-list-scroll { flex:1; overflow-y:auto; }
+.job-list-hdr {
+  display:grid; grid-template-columns:24px 1fr 64px 58px 52px;
+  padding:5px 10px; background:var(--surface2); border-bottom:1px solid var(--border);
+  font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--text-3); flex-shrink:0;
+  position:sticky; top:0; z-index:10;
+}
+.job-row {
+  display:grid; grid-template-columns:24px 1fr 64px 58px 52px;
+  padding:6px 10px; border-bottom:1px solid var(--border); align-items:center; transition:background .1s;
+}
+.job-row:hover { background:var(--ona-light); }
+.job-pri { width:6px; height:6px; border-radius:50%; justify-self:center; }
+.job-name-cell { }
+.job-name-text { font-size:11px; font-weight:600; color:var(--text); line-height:1.2; }
+.job-client-text { font-size:9px; color:var(--text-3); }
+.job-crew-badge { font-size:9px; font-weight:600; padding:2px 6px; border-radius:10px; white-space:nowrap; }
+.job-rev { font-size:12px; font-weight:700; color:var(--text); text-align:right; }
+.job-margin { font-size:11px; font-weight:600; text-align:right; }
+.job-list-footer {
+  padding:8px 10px; background:var(--surface2); border-top:2px solid var(--border);
+  display:grid; grid-template-columns:24px 1fr 64px 58px 52px; align-items:center; flex-shrink:0;
+}
+.footer-label { font-size:10px; font-weight:700; text-transform:uppercase; color:var(--text-2); grid-column:1/4; }
+.footer-rev { font-size:13px; font-weight:700; color:var(--ona-accent); text-align:right; }
+.footer-margin { font-size:12px; font-weight:700; color:var(--crew-a); text-align:right; }
+
+/* Reasoning */
+.reasoning { flex:1; overflow-y:auto; }
+.right-empty {
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; color:var(--text-3); padding:20px;
+}
+.right-empty-icon { font-size:32px; opacity:.2; margin-bottom:12px; }
+.right-empty-text { font-size:11px; color:var(--text-3); line-height:1.8; }
+
+/* Exec summary */
+.exec-sum { background:var(--surface2); border-bottom:1px solid var(--border); padding:12px 13px; }
+.exec-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text-3); margin-bottom:8px; }
+.exec-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px; }
+.exec-stat { background:var(--surface); border:1px solid var(--border); padding:8px 10px; border-radius:3px; }
+.exec-val { font-size:17px; font-weight:700; color:var(--ona-accent); line-height:1; margin-bottom:2px; }
+.exec-lbl { font-size:10px; color:var(--text-3); }
+.exec-proj { background:var(--ona-light); border:1px solid var(--ona-border); border-left:3px solid var(--ona-accent); padding:8px 10px; margin-bottom:6px; border-radius:0 3px 3px 0; }
+.exec-proj-title { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--ona-accent); margin-bottom:5px; }
+.exec-proj-row { display:flex; justify-content:space-between; font-size:11px; color:var(--text-2); margin-bottom:3px; }
+.exec-proj-val { font-weight:700; color:var(--text); }
+.exec-proj-val.highlight { color:var(--crew-a); }
+.exec-insight { font-size:11px; color:var(--text-2); line-height:1.5; padding:7px 9px; background:var(--surface); border:1px solid var(--border); border-radius:3px; }
+
+/* Assignment blocks */
+.asgn-block { border-bottom:1px solid var(--border); padding:10px 13px; }
+.asgn-hdr { display:flex; align-items:flex-start; gap:7px; margin-bottom:7px; }
+.asgn-crew-badge { font-size:9px; font-weight:700; padding:3px 8px; white-space:nowrap; flex-shrink:0; margin-top:2px; border-radius:10px; }
+.asgn-job-name { font-weight:600; font-size:12px; color:var(--text); line-height:1.3; }
+.asgn-meta { font-size:10px; color:var(--text-3); margin-top:2px; }
+.reasons { list-style:none; }
+.reasons li { display:flex; gap:7px; padding:4px 0; font-size:11px; color:var(--text-2); line-height:1.45; border-bottom:1px solid var(--border); }
+.reasons li:last-child { border:none; }
+.reason-bullet { color:var(--ona-accent); flex-shrink:0; margin-top:1px; font-weight:700; }
+
+/* Thinking overlay */
+.thinking { display:none; position:fixed; inset:0; background:rgba(240,244,242,.92); z-index:9000; align-items:center; justify-content:center; flex-direction:column; gap:14px; }
+.thinking.on { display:flex; }
+.thinking-title { font-size:14px; font-weight:700; color:var(--ona-dark); letter-spacing:.05em; }
+.thinking-dots { display:flex; gap:7px; }
+.t-dot { width:7px; height:7px; border-radius:50%; background:var(--ona-accent); animation:tdot 1.2s ease-in-out infinite; }
+.t-dot:nth-child(2) { animation-delay:.2s; }
+.t-dot:nth-child(3) { animation-delay:.4s; }
+@keyframes tdot { 0%,100%{opacity:.2;transform:scale(.8)} 50%{opacity:1;transform:scale(1.1)} }
+.thinking-steps { font-size:11px; color:var(--text-3); text-align:center; line-height:2; }
+.ts { opacity:0; transition:opacity .3s; }
+.ts.on { opacity:1; color:var(--text-2); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width:4px; height:4px; }
+::-webkit-scrollbar-track { background:var(--surface2); }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+::-webkit-scrollbar-thumb:hover { background:var(--ona-mid); }
+
+/* Leaflet */
+.leaflet-container { background:#e8f0ec !important; font-family:var(--font) !important; }
+.leaflet-popup-content-wrapper { background:var(--surface) !important; color:var(--text) !important; border:1px solid var(--border) !important; border-radius:4px !important; box-shadow:0 4px 20px rgba(0,0,0,.12) !important; }
+.leaflet-popup-tip { background:var(--surface) !important; }
+.leaflet-popup-content { font-family:var(--font) !important; font-size:12px !important; margin:10px 13px !important; }
+.popup-name { font-weight:700; font-size:13px; margin-bottom:3px; color:var(--text); }
+.popup-crew { font-size:10px; font-weight:600; margin-bottom:6px; }
+.popup-row { display:flex; justify-content:space-between; gap:14px; font-size:11px; color:var(--text-2); margin-bottom:2px; }
+</style>
+</head>
+<body>
+
+<div class="thinking" id="thinking">
+  <div class="thinking-title">Optimizing Schedule</div>
+  <div class="thinking-dots"><div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div></div>
+  <div class="thinking-steps" id="tsteps">
+    <div class="ts" id="ts1">Parsing crew capabilities and availability...</div>
+    <div class="ts" id="ts2">Scoring all job-crew pairings against objectives...</div>
+    <div class="ts" id="ts3">Applying weighted objective priorities...</div>
+    <div class="ts" id="ts4">Sequencing routes to reduce transit time...</div>
+    <div class="ts" id="ts5">Validating time windows and skill constraints...</div>
+    <div class="ts" id="ts6">Computing daily and annual revenue projections...</div>
+    <div class="ts" id="ts7">Generating per-assignment reasoning...</div>
+  </div>
+</div>
+
+<div class="app">
+  <div class="topbar">
+    <div>
+      <span class="topbar-brand">Old North Analytics</span>
+      <span class="topbar-sub">DispatchIQ</span>
+    </div>
+    <div class="topbar-center">
+      <div class="topbar-stat"><div class="ts-label">Date</div><div class="ts-val" id="tbDate">--</div></div>
+      <div class="topbar-divider"></div>
+      <div class="topbar-stat"><div class="ts-label">Crews</div><div class="ts-val">4</div></div>
+      <div class="topbar-divider"></div>
+      <div class="topbar-stat"><div class="ts-label">Jobs Today</div><div class="ts-val" id="tbJobs">--</div></div>
+      <div class="topbar-divider"></div>
+      <div class="topbar-stat"><div class="ts-label">Assigned</div><div class="ts-val green" id="tbAssigned">0</div></div>
+      <div class="topbar-divider"></div>
+      <div class="topbar-stat"><div class="ts-label">Daily Rev.</div><div class="ts-val blue" id="tbRev">--</div></div>
+    </div>
+    <div class="demo-pill">Demo Mode</div>
+  </div>
+
+  <div class="main">
+    <!-- LEFT -->
+    <div class="left-panel">
+      <div class="panel-hdr"><span class="panel-hdr-title">Schedule Config</span></div>
+      <div class="config-bar">
+        <div class="cfg-row">
+          <span class="cfg-label">Jobs per Day</span>
+          <input class="cfg-input" type="number" id="jobCountInput" min="20" max="40" value="30">
+          <span class="cfg-unit">of 40</span>
+        </div>
+        <div class="cfg-row">
+          <span class="cfg-label">Annual Growth Rate</span>
+          <input class="cfg-input" type="number" id="growthInput" min="0" max="50" value="8">
+          <span class="cfg-unit">%/yr</span>
+        </div>
+      </div>
+      <div class="panel-hdr"><span class="panel-hdr-title">Crew Roster</span><span class="panel-hdr-ct">4 Active</span></div>
+      <div class="crew-scroll" id="crewList"></div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="center">
+      <div class="obj-bar">
+        <span class="obj-bar-label">Objectives</span>
+        <div class="objs" id="objList"></div>
+        <button class="run-btn" id="runBtn" onclick="runOpt()">Run Optimization</button>
+      </div>
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-legend" id="mapLegend" style="display:none">
+          <div class="ml-title">Crews</div>
+          <div class="ml-item"><div class="ml-dot" style="background:var(--crew-a)"></div>Crew Alpha</div>
+          <div class="ml-item"><div class="ml-dot" style="background:var(--crew-b)"></div>Crew Bravo</div>
+          <div class="ml-item"><div class="ml-dot" style="background:var(--crew-c)"></div>Crew Charlie</div>
+          <div class="ml-item"><div class="ml-dot" style="background:var(--crew-d)"></div>Crew Delta</div>
+        </div>
+        <div class="map-ctrl" id="mapCtrl" style="display:none">
+          <div class="mc-label"><span>Time of Day</span><span class="mc-time" id="mcTime">7:00 AM</span></div>
+          <input type="range" class="mc-slider" id="mcSlider" min="0" max="52" value="0" oninput="onSlider(this.value)">
+          <div class="mc-btns">
+            <div class="mc-btn" onclick="stepT(-1)">- 15m</div>
+            <div class="mc-btn" onclick="stepT(1)">+ 15m</div>
+            <div class="mc-btn" onclick="resetT()">Reset</div>
+          </div>
+        </div>
+      </div>
+      <div class="timeline">
+        <div class="tl-hdr">
+          <span class="tl-title">Daily Timeline</span>
+          <span class="panel-hdr-ct" id="tlLabel">Run optimization to populate</span>
+        </div>
+        <div class="tl-body"><div class="tl-grid" id="tlGrid">
+          <div class="tl-axis" id="tlAxis"></div>
+          <div id="tlRows"></div>
+        </div></div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right-panel">
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tab-jobs" onclick="switchTab('jobs')">Job List</button>
+        <button class="tab-btn" id="tab-ai" onclick="switchTab('ai')">AI Reasoning</button>
+      </div>
+
+      <!-- Job List Tab -->
+      <div class="tab-content active" id="content-jobs">
+        <div class="margin-bar">
+          <span class="margin-label">Margin %</span>
+          <input class="margin-input" type="number" id="marginInput" min="0" max="100" value="40" oninput="refreshJobList()">
+          <span class="margin-pct">% gross margin</span>
+        </div>
+        <div class="job-list-hdr">
+          <span></span>
+          <span>Job</span>
+          <span>Crew</span>
+          <span style="text-align:right">Revenue</span>
+          <span style="text-align:right">Margin</span>
+        </div>
+        <div class="job-list-scroll" id="jobListScroll">
+          <div class="right-empty">
+            <div class="right-empty-icon">&#9783;</div>
+            <div class="right-empty-text">Run optimization to<br>populate the job list.</div>
+          </div>
+        </div>
+        <div class="job-list-footer" id="jobListFooter" style="display:none">
+          <span class="footer-label">Total</span>
+          <span class="footer-rev" id="footerRev">--</span>
+          <span class="footer-margin" id="footerMargin">--</span>
+        </div>
+      </div>
+
+      <!-- AI Reasoning Tab -->
+      <div class="tab-content" id="content-ai">
+        <div class="right-empty" id="rightEmpty">
+          <div class="right-empty-icon">&#9671;</div>
+          <div class="right-empty-text">Set objective weights,<br>configure job count and growth rate,<br>then run the optimization.</div>
+        </div>
+        <div class="reasoning" id="reasoning" style="display:none; overflow-y:auto; flex:1;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===================== DATA =====================
+const CREWS = [
+  { id:'alpha', name:'Crew Alpha', lead:'Marcus T.', color:'#2e8b57', skills:['HVAC','Electrical','Inspection'], startLat:35.7796, startLng:-78.6382 },
+  { id:'bravo', name:'Crew Bravo', lead:'Sandra K.', color:'#2563eb', skills:['Plumbing','General Maintenance','Inspection'], startLat:35.7596, startLng:-78.5982 },
+  { id:'charlie', name:'Crew Charlie', lead:'Devon R.', color:'#d97706', skills:['HVAC','Electrical','General Maintenance'], startLat:35.7396, startLng:-78.6582 },
+  { id:'delta', name:'Crew Delta', lead:'Priya N.', color:'#dc2626', skills:['Plumbing','Inspection','Safety Audit'], startLat:35.8096, startLng:-78.5582 }
+];
+
+const JOB_POOL = [
+  { id:'J01', name:'HVAC Annual Inspection', client:'Ridgewood Office Park', lat:35.8296, lng:-78.6282, skills:['HVAC','Inspection'], dur:90, priority:'high', val:480, ws:'08:00', we:'12:00' },
+  { id:'J02', name:'Electrical Panel Upgrade', client:'Brentwood Retail', lat:35.7650, lng:-78.5800, skills:['Electrical'], dur:120, priority:'high', val:750, ws:'07:00', we:'11:00' },
+  { id:'J03', name:'Pipe Leak Repair', client:'Cameron Village Apts', lat:35.7920, lng:-78.6450, skills:['Plumbing'], dur:60, priority:'high', val:290, ws:'07:00', we:'10:00' },
+  { id:'J04', name:'HVAC Filter Replacement', client:'Crabtree Valley Medical', lat:35.8350, lng:-78.6800, skills:['HVAC'], dur:45, priority:'medium', val:195, ws:'09:00', we:'15:00' },
+  { id:'J05', name:'Safety Compliance Audit', client:'Wake County Warehouse', lat:35.7350, lng:-78.5600, skills:['Safety Audit','Inspection'], dur:150, priority:'medium', val:620, ws:'08:00', we:'14:00' },
+  { id:'J06', name:'General Maintenance Walkaround', client:'Stonehenge Commons HOA', lat:35.8150, lng:-78.7200, skills:['General Maintenance'], dur:75, priority:'low', val:180, ws:'08:00', we:'17:00' },
+  { id:'J07', name:'Electrical Fault Diagnosis', client:'North Hills Mall', lat:35.8480, lng:-78.6100, skills:['Electrical','Inspection'], dur:90, priority:'high', val:560, ws:'07:00', we:'12:00' },
+  { id:'J08', name:'Plumbing Backflow Test', client:'Glenwood Ave Restaurant Row', lat:35.8020, lng:-78.6600, skills:['Plumbing','Inspection'], dur:60, priority:'medium', val:240, ws:'09:00', we:'14:00' },
+  { id:'J09', name:'HVAC Emergency Call', client:'Quorum Center Office', lat:35.7750, lng:-78.7000, skills:['HVAC'], dur:120, priority:'high', val:890, ws:'07:00', we:'10:00' },
+  { id:'J10', name:'Routine Maintenance Inspection', client:'Triangle Town Center', lat:35.8600, lng:-78.5650, skills:['General Maintenance','Inspection'], dur:90, priority:'low', val:310, ws:'10:00', we:'17:00' },
+  { id:'J11', name:'Electrical Outlet Install', client:'Morrisville Tech Campus', lat:35.8180, lng:-78.7950, skills:['Electrical'], dur:60, priority:'medium', val:320, ws:'08:00', we:'13:00' },
+  { id:'J12', name:'Water Heater Replacement', client:'Cary Park Condos', lat:35.7840, lng:-78.7780, skills:['Plumbing'], dur:120, priority:'high', val:680, ws:'07:00', we:'12:00' },
+  { id:'J13', name:'HVAC Duct Sealing', client:'Research Triangle Park HQ', lat:35.8980, lng:-78.8650, skills:['HVAC'], dur:180, priority:'medium', val:540, ws:'09:00', we:'17:00' },
+  { id:'J14', name:'Fire Suppression Inspection', client:'Durham County Fire District', lat:35.9860, lng:-78.9220, skills:['Safety Audit','Inspection'], dur:90, priority:'high', val:430, ws:'08:00', we:'13:00' },
+  { id:'J15', name:'Circuit Breaker Replacement', client:'Apex Business Center', lat:35.7320, lng:-78.8500, skills:['Electrical'], dur:75, priority:'medium', val:380, ws:'10:00', we:'16:00' },
+  { id:'J16', name:'Sewer Line Inspection', client:'Holly Springs HOA', lat:35.6510, lng:-78.8330, skills:['Plumbing','Inspection'], dur:90, priority:'high', val:520, ws:'07:00', we:'12:00' },
+  { id:'J17', name:'HVAC Preventive Maintenance', client:'Fuquay-Varina Medical Ctr', lat:35.5970, lng:-78.7960, skills:['HVAC'], dur:90, priority:'medium', val:310, ws:'09:00', we:'16:00' },
+  { id:'J18', name:'General Repairs Walkaround', client:'Garner Business Park', lat:35.7110, lng:-78.6140, skills:['General Maintenance'], dur:60, priority:'low', val:160, ws:'08:00', we:'17:00' },
+  { id:'J19', name:'Electrical Safety Inspection', client:'Knightdale Data Center', lat:35.7830, lng:-78.4850, skills:['Electrical','Safety Audit'], dur:120, priority:'high', val:640, ws:'07:00', we:'12:00' },
+  { id:'J20', name:'Backflow Preventer Install', client:'Wendell Industrial Park', lat:35.7720, lng:-78.3690, skills:['Plumbing'], dur:90, priority:'medium', val:420, ws:'09:00', we:'15:00' },
+  { id:'J21', name:'HVAC Coolant Recharge', client:'Rolesville Commerce Park', lat:35.9220, lng:-78.4580, skills:['HVAC'], dur:60, priority:'medium', val:280, ws:'10:00', we:'16:00' },
+  { id:'J22', name:'Wiring Inspection', client:'Wake Forest Tech Hub', lat:35.9780, lng:-78.5090, skills:['Electrical','Inspection'], dur:75, priority:'low', val:230, ws:'08:00', we:'17:00' },
+  { id:'J23', name:'Drain Cleaning Service', client:'Zebulon Distribution Ctr', lat:35.8240, lng:-78.3160, skills:['Plumbing'], dur:60, priority:'medium', val:195, ws:'09:00', we:'14:00' },
+  { id:'J24', name:'Safety Equipment Audit', client:'Angier Manufacturing', lat:35.5140, lng:-78.7370, skills:['Safety Audit'], dur:120, priority:'high', val:580, ws:'08:00', we:'14:00' },
+  { id:'J25', name:'Generator Inspection', client:'Smithfield Commercial Hub', lat:35.5090, lng:-78.3380, skills:['Electrical','Inspection'], dur:90, priority:'medium', val:390, ws:'10:00', we:'16:00' },
+  { id:'J26', name:'AC Coil Cleaning', client:'Selma Shopping Center', lat:35.5390, lng:-78.2890, skills:['HVAC'], dur:60, priority:'low', val:175, ws:'09:00', we:'17:00' },
+  { id:'J27', name:'Boiler Safety Check', client:'Smithfield Industrial Park', lat:35.5020, lng:-78.3420, skills:['Safety Audit','Inspection'], dur:90, priority:'high', val:460, ws:'07:00', we:'12:00' },
+  { id:'J28', name:'Pipe Insulation Install', client:'Johnston County Offices', lat:35.5130, lng:-78.3300, skills:['Plumbing'], dur:120, priority:'medium', val:360, ws:'09:00', we:'16:00' },
+  { id:'J29', name:'Electrical Panel Survey', client:'Benson Business Park', lat:35.3810, lng:-78.5460, skills:['Electrical'], dur:75, priority:'low', val:280, ws:'10:00', we:'17:00' },
+  { id:'J30', name:'HVAC Zoning Install', client:'Dunn Retail Center', lat:35.3060, lng:-78.6100, skills:['HVAC'], dur:180, priority:'medium', val:720, ws:'08:00', we:'17:00' },
+  { id:'J31', name:'Sprinkler System Inspection', client:'Lillington Town Hall', lat:35.3970, lng:-78.8150, skills:['Safety Audit','Inspection'], dur:90, priority:'high', val:410, ws:'07:00', we:'13:00' },
+  { id:'J32', name:'Hot Water System Check', client:'Fuquay Plaza HOA', lat:35.5830, lng:-78.8010, skills:['Plumbing'], dur:60, priority:'medium', val:210, ws:'10:00', we:'15:00' },
+  { id:'J33', name:'Generator Hookup', client:'Apex Emergency Services', lat:35.7210, lng:-78.8590, skills:['Electrical'], dur:120, priority:'high', val:760, ws:'07:00', we:'12:00' },
+  { id:'J34', name:'HVAC System Replacement', client:'Cary Medical Office Park', lat:35.7910, lng:-78.7820, skills:['HVAC'], dur:240, priority:'high', val:1200, ws:'07:00', we:'17:00' },
+  { id:'J35', name:'Sump Pump Install', client:'Clayton Residential Dev', lat:35.6510, lng:-78.4580, skills:['Plumbing'], dur:90, priority:'medium', val:340, ws:'09:00', we:'15:00' },
+  { id:'J36', name:'Fire Panel Inspection', client:'Knightdale Business Suites', lat:35.7930, lng:-78.4910, skills:['Safety Audit'], dur:60, priority:'medium', val:250, ws:'10:00', we:'15:00' },
+  { id:'J37', name:'Data Center Cooling Survey', client:'RTP Server Farm', lat:35.8930, lng:-78.8600, skills:['HVAC','Electrical'], dur:120, priority:'high', val:880, ws:'08:00', we:'14:00' },
+  { id:'J38', name:'General Maintenance Sweep', client:'Garner Industrial Row', lat:35.6990, lng:-78.6120, skills:['General Maintenance'], dur:75, priority:'low', val:155, ws:'08:00', we:'17:00' },
+  { id:'J39', name:'Emergency Pipe Burst', client:'Morrisville Apartment Complex', lat:35.8290, lng:-78.8340, skills:['Plumbing'], dur:90, priority:'high', val:620, ws:'07:00', we:'10:00' },
+  { id:'J40', name:'Comprehensive Facility Audit', client:'Durham Tech Park', lat:35.9980, lng:-78.9340, skills:['Safety Audit','Inspection','General Maintenance'], dur:180, priority:'high', val:950, ws:'08:00', we:'17:00' }
+];
+
+const OBJECTIVES = [
+  { id:'minimize_drive', name:'Minimize Drive Time', weight:70 },
+  { id:'high_value', name:'Prioritize High Value', weight:80 },
+  { id:'balance_workload', name:'Balance Crew Workload', weight:40 },
+  { id:'meet_windows', name:'Meet Time Windows', weight:90 },
+  { id:'skill_match', name:'Skill Precision Match', weight:100 }
+];
+
+// ===================== STATE =====================
+let assignments = [];
+let activeJobs = [];
+let map, jobMarkers = [], routeLayers = [], historyLayers = [];
+let sliderStep = 0;
+const WORK_START = 7 * 60;
+const WORK_END = 20 * 60;
+const TOTAL_STEPS = 52;
+const PRI_COLORS = { high:'#dc2626', medium:'#d97706', low:'#2e8b57' };
+
+// ===================== INIT =====================
+function init() {
+  document.getElementById('tbDate').textContent = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  renderObjs();
+  renderCrews();
+  initMap();
+  buildAxis();
+  updateJobCount();
+  document.getElementById('jobCountInput').addEventListener('input', updateJobCount);
+}
+
+function updateJobCount() {
+  const n = Math.min(40, Math.max(20, parseInt(document.getElementById('jobCountInput').value) || 30));
+  document.getElementById('tbJobs').textContent = n;
+}
+
+// ===================== TABS =====================
+function switchTab(tab) {
+  ['jobs','ai'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+    document.getElementById('content-'+t).classList.toggle('active', t===tab);
+  });
+}
+
+// ===================== OBJECTIVES =====================
+function renderObjs() {
+  document.getElementById('objList').innerHTML = OBJECTIVES.map(o => `
+    <div class="obj">
+      <div class="obj-name">${o.name}</div>
+      <div class="obj-weight-row">
+        <input class="obj-weight-inp" type="number" id="ow_${o.id}" min="0" max="100" value="${o.weight}" oninput="updateObjBar('${o.id}')">
+        <span class="obj-weight-label">/ 100</span>
+      </div>
+      <div class="obj-bar-fill"><div class="obj-bar-inner" id="ob_${o.id}" style="width:${o.weight}%"></div></div>
+    </div>
+  `).join('');
+}
+
+function updateObjBar(id) {
+  const val = parseInt(document.getElementById('ow_'+id).value) || 0;
+  document.getElementById('ob_'+id).style.width = Math.min(100,Math.max(0,val)) + '%';
+}
+
+function getWeights() {
+  const w = {};
+  OBJECTIVES.forEach(o => { w[o.id] = parseInt(document.getElementById('ow_'+o.id).value) || 0; });
+  return w;
+}
+
+// ===================== CREW RENDER =====================
+function renderCrews() {
+  document.getElementById('crewList').innerHTML = CREWS.map(c => {
+    const asn = assignments.filter(a => a.crewId === c.id);
+    const mins = asn.reduce((s,a) => s + a.job.dur, 0);
+    const util = Math.min(100, Math.round(mins / 480 * 100));
+    return `<div class="crew-card">
+      <div class="crew-hdr">
+        <div class="crew-dot" style="background:${c.color}"></div>
+        <div class="crew-name">${c.name} <span class="crew-lead">-- ${c.lead}</span></div>
+        <div class="crew-pct" style="background:${c.color}18;color:${c.color}">${util}%</div>
+      </div>
+      <div class="skills-row">${c.skills.map(s => `<span class="skill">${s}</span>`).join('')}</div>
+      <div class="load-row">
+        <div class="load-bg"><div class="load-fill" style="width:${util}%;background:${c.color}"></div></div>
+        <div class="load-pct">${Math.round(mins/60)}h</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ===================== MAP =====================
+function initMap() {
+  map = L.map('map', { center:[35.7896,-78.6382], zoom:10, zoomControl:true, attributionControl:false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom:19 }).addTo(map);
+  CREWS.forEach(c => {
+    const icon = L.divIcon({ html:`<div style="width:10px;height:10px;background:${c.color};border:2px solid white;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.25)"></div>`, iconSize:[10,10], iconAnchor:[5,5], className:'' });
+    L.marker([c.startLat,c.startLng],{icon}).addTo(map).bindTooltip(`${c.name} Depot`);
+  });
+}
+
+function placeJobMarkers() {
+  jobMarkers.forEach(m => map.removeLayer(m.marker));
+  jobMarkers = [];
+  activeJobs.forEach(j => {
+    const asn = assignments.find(a => a.job.id === j.id);
+    const crew = asn ? CREWS.find(c => c.id === asn.crewId) : null;
+    const col = crew ? crew.color : '#537C6F';
+    const icon = L.divIcon({ html:`<div style="width:12px;height:12px;background:${col};border:2px solid white;transform:rotate(45deg);box-shadow:0 1px 4px rgba(0,0,0,.2)"></div>`, iconSize:[12,12], iconAnchor:[6,6], className:'' });
+    const m = L.marker([j.lat,j.lng],{icon}).addTo(map);
+    m.bindPopup(buildPopup(j,crew));
+    jobMarkers.push({id:j.id, marker:m});
+  });
+}
+
+function buildPopup(j, crew) {
+  return `<div class="popup-name">${j.name}</div>
+  <div class="popup-crew" style="color:${crew ? crew.color : '#537C6F'}">${crew ? crew.name : 'Unassigned'}</div>
+  <div class="popup-row"><span>${j.client}</span></div>
+  <div class="popup-row"><span>Duration</span><span>${j.dur} min</span></div>
+  <div class="popup-row"><span>Value</span><span>$${j.val.toLocaleString()}</span></div>
+  <div class="popup-row"><span>Window</span><span>${j.ws} -- ${j.we}</span></div>`;
+}
+
+// ===================== TIME SLIDER =====================
+function onSlider(step) {
+  sliderStep = parseInt(step);
+  const mins = WORK_START + sliderStep * 15;
+  document.getElementById('mcTime').textContent = minsToTime(mins);
+  drawTimeState(mins);
+}
+function stepT(d) { const nv = Math.max(0, Math.min(TOTAL_STEPS, sliderStep + d)); document.getElementById('mcSlider').value = nv; onSlider(nv); }
+function resetT() { document.getElementById('mcSlider').value = 0; onSlider(0); }
+
+function drawTimeState(mins) {
+  routeLayers.forEach(l => map.removeLayer(l));
+  historyLayers.forEach(l => map.removeLayer(l));
+  routeLayers = []; historyLayers = [];
+  CREWS.forEach(crew => {
+    const asns = assignments.filter(a => a.crewId === crew.id).sort((a,b) => a.startTime - b.startTime);
+    if (!asns.length) return;
+    const pts = [
+      { lat:crew.startLat, lng:crew.startLng, time:WORK_START },
+      ...asns.map(a => ({ lat:a.job.lat, lng:a.job.lng, time:a.startTime, end:a.startTime + a.job.dur }))
+    ];
+    const histPts = [];
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i].time <= mins) {
+        histPts.push([pts[i].lat, pts[i].lng]);
+      } else {
+        if (histPts.length > 0) {
+          const prev = pts[i-1];
+          const frac = Math.min(1, (mins - prev.time) / Math.max(1, pts[i].time - prev.time));
+          const il = prev.lat + (pts[i].lat - prev.lat) * frac;
+          const ilg = prev.lng + (pts[i].lng - prev.lng) * frac;
+          histPts.push([il, ilg]);
+          const pi = L.divIcon({ html:`<div style="width:11px;height:11px;background:${crew.color};border:2px solid white;border-radius:50%;box-shadow:0 0 6px ${crew.color}80"></div>`, iconSize:[11,11], iconAnchor:[5,5], className:'' });
+          const pm = L.marker([il, ilg], { icon:pi }).addTo(map);
+          pm.bindTooltip(`${crew.name} -- ${minsToTime(mins)}`);
+          historyLayers.push(pm);
+        }
+        const futPts = histPts.length ? [histPts[histPts.length-1], ...pts.slice(i).map(p => [p.lat, p.lng])] : pts.slice(i).map(p => [p.lat, p.lng]);
+        if (futPts.length > 1) { const fl = L.polyline(futPts, { color:crew.color, weight:1.5, opacity:.2, dashArray:'4 6' }).addTo(map); routeLayers.push(fl); }
+        break;
+      }
+    }
+    if (histPts.length > 1) { const hl = L.polyline(histPts, { color:crew.color, weight:3, opacity:.85 }).addTo(map); historyLayers.push(hl); }
+    else if (histPts.length === 0) {
+      const futAll = pts.map(p => [p.lat, p.lng]);
+      if (futAll.length > 1) { const fl = L.polyline(futAll, { color:crew.color, weight:1.5, opacity:.15, dashArray:'4 6' }).addTo(map); routeLayers.push(fl); }
+    }
+  });
+}
+
+// ===================== OPTIMIZATION =====================
+function haversine(la1, lo1, la2, lo2) {
+  const R = 3958.8, dLa = (la2-la1)*Math.PI/180, dLo = (lo2-lo1)*Math.PI/180;
+  const a = Math.sin(dLa/2)**2 + Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function minsToTime(m) { const h=Math.floor(m/60), mn=m%60, ap=h>=12?'PM':'AM', hh=h>12?h-12:(h===0?12:h); return `${hh}:${mn.toString().padStart(2,'0')} ${ap}`; }
+function canDo(crew, job) { return job.skills.every(s => crew.skills.includes(s)); }
+
+function runOpt() {
+  const btn = document.getElementById('runBtn');
+  if (btn.classList.contains('busy')) return;
+  btn.classList.add('busy'); btn.textContent = 'Computing...';
+  const ov = document.getElementById('thinking'); ov.classList.add('on');
+  const steps = ['ts1','ts2','ts3','ts4','ts5','ts6','ts7'];
+  steps.forEach((id,i) => setTimeout(() => document.getElementById(id).classList.add('on'), i*380));
+  setTimeout(() => {
+    ov.classList.remove('on');
+    steps.forEach(id => document.getElementById(id).classList.remove('on'));
+    execute();
+    btn.classList.remove('busy'); btn.textContent = 'Re-optimize';
+  }, 3000);
+}
+
+function execute() {
+  const n = Math.min(40, Math.max(20, parseInt(document.getElementById('jobCountInput').value) || 30));
+  const growth = parseFloat(document.getElementById('growthInput').value) || 8;
+  const w = getWeights();
+  const sorted = [...JOB_POOL].sort((a,b) => { const pm={high:3,medium:2,low:1}; return pm[b.priority]-pm[a.priority] || b.val-a.val; });
+  activeJobs = sorted.slice(0, n);
+  assignments = [];
+  const crewTime = {}, crewPos = {};
+  CREWS.forEach(c => { crewTime[c.id] = WORK_START; crewPos[c.id] = { lat:c.startLat, lng:c.startLng }; });
+  const jobQueue = [...activeJobs].sort((a,b) => { const pm={high:3,medium:2,low:1}; return (pm[b.priority]*10+(w.high_value/100)*(b.val/100)) - (pm[a.priority]*10+(w.high_value/100)*(a.val/100)); });
+  jobQueue.forEach(job => {
+    let best = null, bestScore = -Infinity, bestReasons = [], bestStart = null;
+    CREWS.forEach(crew => {
+      if (!canDo(crew, job)) return;
+      const dist = haversine(crewPos[crew.id].lat, crewPos[crew.id].lng, job.lat, job.lng);
+      const travel = Math.round(dist * 2.2);
+      const [wsh,wsm] = job.ws.split(':').map(Number);
+      const [weh,wem] = job.we.split(':').map(Number);
+      const winStart = wsh*60+wsm, winEnd = weh*60+wem;
+      const arrival = crewTime[crew.id] + travel;
+      const start = Math.max(arrival, winStart);
+      if (start + job.dur > winEnd + 45 && w.meet_windows > 50) return;
+      let score = 0; const reasons = [];
+      const matchedSkills = job.skills.filter(s => crew.skills.includes(s));
+      score += (matchedSkills.length / job.skills.length) * w.skill_match;
+      reasons.push(`Exact skill match on ${matchedSkills.join(' and ')}: crew is fully qualified, satisfying skill precision weight of ${w.skill_match}/100.`);
+      const driveScore = Math.max(0, w.minimize_drive - dist * (w.minimize_drive/15));
+      score += driveScore;
+      const closer = dist < 4 ? 'among the shortest options' : dist < 8 ? 'within acceptable range' : 'acceptable given skill advantage';
+      reasons.push(`Distance ${dist.toFixed(1)} mi (approx. ${travel} min transit), ${closer}. Drive weight: ${w.minimize_drive}/100.`);
+      score += (job.val / 1200) * w.high_value;
+      reasons.push(`Job value of $${job.val.toLocaleString()} ${job.val >= 600 ? 'is high-revenue' : 'contributes to daily target'}. Value weight: ${w.high_value}/100.`);
+      const loadPct = Math.round((crewTime[crew.id] - WORK_START)/480*100);
+      score += Math.max(0, (w.balance_workload/100) * (50 - loadPct));
+      reasons.push(`Current utilization ${loadPct}%. ${loadPct < 35 ? 'Underutilized -- assignment improves balance.' : 'Within acceptable range.'} Workload weight: ${w.balance_workload}/100.`);
+      const inWindow = start >= winStart && (start + job.dur) <= winEnd + 30;
+      score += inWindow ? w.meet_windows : -w.meet_windows * 0.3;
+      reasons.push(inWindow ? `Arrives by ${minsToTime(start)}, satisfying ${job.ws}--${job.we} window. Window weight: ${w.meet_windows}/100.` : `Arrival at ${minsToTime(start)} slightly exceeds close. Tradeoff accepted. Window weight: ${w.meet_windows}/100.`);
+      const nearby = jobQueue.filter(jj => !assignments.find(a => a.job.id === jj.id) && jj.id !== job.id && canDo(crew, jj) && haversine(job.lat, job.lng, jj.lat, jj.lng) < 5);
+      if (nearby.length > 0) { score += 8; reasons.push(`Geographic cluster: ${nearby.length} compatible job${nearby.length>1?'s':''} within 5 mi (e.g. ${nearby[0].name}). Reduces future backtracking.`); }
+      else { reasons.push(`No dense cluster near this site. Crew routes to nearest compatible job after.`); }
+      if (score > bestScore) { bestScore = score; best = crew; bestReasons = reasons; bestStart = start; }
+    });
+    if (best) {
+      const dist = haversine(crewPos[best.id].lat, crewPos[best.id].lng, job.lat, job.lng);
+      assignments.push({ job, crewId:best.id, startTime:bestStart, travelMins:Math.round(dist*2.2), dist, reasoning:bestReasons });
+      crewTime[best.id] = bestStart + job.dur;
+      crewPos[best.id] = { lat:job.lat, lng:job.lng };
+    }
+  });
+  renderResults(growth);
+}
+
+// ===================== JOB LIST =====================
+function refreshJobList() {
+  if (!assignments.length) return;
+  const margin = Math.max(0, Math.min(100, parseFloat(document.getElementById('marginInput').value) || 40)) / 100;
+  const sorted = [...assignments].sort((a,b) => {
+    const ci = CREWS.findIndex(c=>c.id===a.crewId) - CREWS.findIndex(c=>c.id===b.crewId);
+    return ci !== 0 ? ci : a.startTime - b.startTime;
+  });
+  const totalRev = sorted.reduce((s,a) => s + a.job.val, 0);
+  const totalMargin = Math.round(totalRev * margin);
+  document.getElementById('jobListScroll').innerHTML = sorted.map(a => {
+    const crew = CREWS.find(c => c.id === a.crewId);
+    const jobMargin = Math.round(a.job.val * margin);
+    const priCol = PRI_COLORS[a.job.priority];
+    return `<div class="job-row">
+      <div><div class="job-pri" style="background:${priCol}"></div></div>
+      <div class="job-name-cell">
+        <div class="job-name-text">${a.job.name}</div>
+        <div class="job-client-text">${a.job.client} &middot; ${minsToTime(a.startTime)}</div>
+      </div>
+      <div><span class="job-crew-badge" style="background:${crew.color}18;color:${crew.color}">${crew.name.replace('Crew ','')}</span></div>
+      <div class="job-rev">$${a.job.val.toLocaleString()}</div>
+      <div class="job-margin" style="color:var(--crew-a)">$${jobMargin.toLocaleString()}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('footerRev').textContent = '$' + totalRev.toLocaleString();
+  document.getElementById('footerMargin').textContent = '$' + totalMargin.toLocaleString();
+  document.getElementById('jobListFooter').style.display = 'grid';
+}
+
+// ===================== RENDERING =====================
+function renderResults(growth) {
+  renderCrews();
+  placeJobMarkers();
+  buildTimeline();
+  buildReasoning(growth);
+  refreshJobList();
+  document.getElementById('mapCtrl').style.display = 'block';
+  document.getElementById('mapLegend').style.display = 'block';
+  document.getElementById('tlLabel').textContent = '7:00 AM -- 8:00 PM';
+  document.getElementById('mcSlider').value = 0;
+  document.getElementById('tbAssigned').textContent = assignments.length;
+  const totalVal = assignments.reduce((s,a) => s + a.job.val, 0);
+  document.getElementById('tbRev').textContent = '$' + totalVal.toLocaleString();
+  sliderStep = 0; onSlider(0);
+}
+
+// ===================== TIMELINE =====================
+function buildAxis() {
+  document.getElementById('tlAxis').innerHTML = ['7AM','8AM','9AM','10AM','11AM','12PM','1PM','2PM','3PM','4PM','5PM','6PM','7PM','8PM'].map(h => `<div class="tl-hour">${h}</div>`).join('');
+}
+
+function buildTimeline() {
+  const TOTAL = WORK_END - WORK_START;
+  document.getElementById('tlRows').innerHTML = CREWS.map(crew => {
+    const asns = assignments.filter(a => a.crewId === crew.id).sort((a,b) => a.startTime - b.startTime);
+    let blocks = ''; let prev = WORK_START;
+    asns.forEach(a => {
+      if (a.startTime > prev) {
+        const dl = ((prev-WORK_START)/TOTAL*100).toFixed(2);
+        const dw = ((a.startTime-prev)/TOTAL*100).toFixed(2);
+        blocks += `<div class="tl-block tl-drive" style="left:${dl}%;width:${dw}%;background:${crew.color}30"></div>`;
+      }
+      const jl = ((a.startTime-WORK_START)/TOTAL*100).toFixed(2);
+      const jw = (a.job.dur/TOTAL*100).toFixed(2);
+      blocks += `<div class="tl-block" style="left:${jl}%;width:${jw}%;background:${crew.color};color:#fff;padding:0 2px;font-size:8px;font-weight:600" title="${a.job.name} -- ${minsToTime(a.startTime)}">${a.job.id}</div>`;
+      prev = a.startTime + a.job.dur;
+    });
+    return `<div class="tl-row"><div class="tl-crew-label"><div class="tl-dot" style="background:${crew.color}"></div>${crew.name.replace('Crew ','')}</div><div class="tl-track">${blocks}</div></div>`;
+  }).join('');
+}
+
+// ===================== REASONING =====================
+function buildReasoning(growth) {
+  const totalVal = assignments.reduce((s,a) => s + a.job.val, 0);
+  const hiPriCov = assignments.filter(a => a.job.priority === 'high').length;
+  const hiPriTot = activeJobs.filter(j => j.priority === 'high').length;
+  const utils = CREWS.map(c => { const m = assignments.filter(a=>a.crewId===c.id).reduce((s,a)=>s+a.job.dur,0); return Math.round(m/480*100); });
+  const avgUtil = Math.round(utils.reduce((a,b)=>a+b,0)/utils.length);
+  const w = getWeights();
+  const windowWt = w.meet_windows / 100;
+  const skillWt = w.skill_match / 100;
+  const retentionDriver = windowWt * 0.5 + skillWt * 0.5;
+  const baseRetention = 0.60 + retentionDriver * 0.30;
+  const workDays = 250;
+  const annualBase = totalVal * workDays;
+  const growthRate = (parseFloat(document.getElementById('growthInput').value) || 8) / 100;
+  const annualRetained = assignments.length * baseRetention * (totalVal / Math.max(1,assignments.length)) * workDays;
+  const annualGrown = annualRetained * (1 + growthRate);
+  const retPct = Math.round(baseRetention * 100);
+
+  let html = `<div class="exec-sum">
+    <div class="exec-title">Executive Summary</div>
+    <div class="exec-grid">
+      <div class="exec-stat"><div class="exec-val">${assignments.length}/${activeJobs.length}</div><div class="exec-lbl">Jobs Scheduled</div></div>
+      <div class="exec-stat"><div class="exec-val">$${totalVal.toLocaleString()}</div><div class="exec-lbl">Daily Revenue</div></div>
+      <div class="exec-stat"><div class="exec-val">${avgUtil}%</div><div class="exec-lbl">Avg Utilization</div></div>
+      <div class="exec-stat"><div class="exec-val">${hiPriCov}/${hiPriTot}</div><div class="exec-lbl">High-Pri Covered</div></div>
+    </div>
+    <div class="exec-proj">
+      <div class="exec-proj-title">Annual Revenue Projection</div>
+      <div class="exec-proj-row"><span>Daily Baseline</span><span class="exec-proj-val">$${totalVal.toLocaleString()}</span></div>
+      <div class="exec-proj-row"><span>Working Days</span><span class="exec-proj-val">${workDays}</span></div>
+      <div class="exec-proj-row"><span>Gross Annual</span><span class="exec-proj-val">$${Math.round(annualBase/1000)}K</span></div>
+      <div class="exec-proj-row"><span>Est. Retention</span><span class="exec-proj-val">${retPct}%</span></div>
+      <div class="exec-proj-row"><span>w/ Retention</span><span class="exec-proj-val">$${Math.round(annualRetained/1000)}K</span></div>
+      <div class="exec-proj-row"><span>w/ Retention + ${Math.round(growthRate*100)}% Growth</span><span class="exec-proj-val highlight">$${Math.round(annualGrown/1000)}K</span></div>
+    </div>
+    <div class="exec-insight">At ${retPct}% estimated retention (driven by ${Math.round(windowWt*100)}% window + ${Math.round(skillWt*100)}% skill weights), annual revenue projects to $${Math.round(annualGrown/1000)}K with ${Math.round(growthRate*100)}% growth assumption.</div>
+  </div>`;
+
+  const sorted = [...assignments].sort((a,b) => {
+    const ci = CREWS.findIndex(c=>c.id===a.crewId) - CREWS.findIndex(c=>c.id===b.crewId);
+    return ci !== 0 ? ci : a.startTime - b.startTime;
+  });
+
+  sorted.forEach(a => {
+    const crew = CREWS.find(c => c.id === a.crewId);
+    html += `<div class="asgn-block">
+      <div class="asgn-hdr">
+        <div class="asgn-crew-badge" style="background:${crew.color}18;color:${crew.color}">${crew.name}</div>
+        <div>
+          <div class="asgn-job-name">${a.job.name}</div>
+          <div class="asgn-meta">${a.job.id} &middot; ${minsToTime(a.startTime)} &middot; ${a.job.dur}min &middot; $${a.job.val.toLocaleString()} &middot; <span style="color:${PRI_COLORS[a.job.priority]}">${a.job.priority}</span></div>
+        </div>
+      </div>
+      <ul class="reasons">
+        ${a.reasoning.slice(0,5).map(r => `<li><span class="reason-bullet">&#x25B8;</span><span>${r}</span></li>`).join('')}
+      </ul>
+    </div>`;
+  });
+
+  const rsn = document.getElementById('reasoning');
+  rsn.innerHTML = html; rsn.style.display = 'block';
+  document.getElementById('rightEmpty').style.display = 'none';
+  document.getElementById('reasoningCt') && (document.getElementById('reasoningCt').textContent = assignments.length + ' assignments');
+}
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
