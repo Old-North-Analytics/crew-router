@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root {
   --ona-dark:#22493D;--ona-mid:#537C6F;--ona-accent:#2e7d5e;--ona-light:#EAF6F2;--ona-border:#c8ddd8;
@@ -326,6 +326,7 @@ html,body{height:100vh;overflow:hidden;font-family:var(--font);font-size:13px;ba
     </div>
     <div class="tb-right">
       <span class="instr-btn" onclick="openWelcome()">Instructions</span>
+      <span class="instr-btn" id="exportBtn" onclick="exportPDF()" style="display:none">Export PDF</span>
       <span class="demo-pill">Demo</span>
     </div>
   </div>
@@ -803,6 +804,7 @@ function renderResults(){
   renderCrews();placeMarkers();buildTimeline();buildReasoning();refreshJobList();
   document.getElementById('mapCtrl').style.display='block';
   document.getElementById('mapLegend').style.display='block';
+  document.getElementById('exportBtn').style.display='inline-block';
   document.getElementById('tlLbl').textContent='7:00 AM \u2014 8:00 PM';
   document.getElementById('mcSlider').value=0;
   document.getElementById('tbAssigned').textContent=assignments.length;
@@ -863,6 +865,193 @@ function buildReasoning(){
 
   const rsn=document.getElementById('reasoning');rsn.innerHTML=html;rsn.style.display='block';
   document.getElementById('rEmpty').style.display='none';
+}
+
+// ── PDF EXPORT ────────────────────────────────────────────────
+function exportPDF(){
+  if(!assignments.length){alert('Run the optimizer first.');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
+  const PW=792,PH=612;
+  const DARK='#22493D',MID='#537C6F',LIGHT='#EAF6F2',BORDER='#c8ddd8';
+  const FONT='helvetica';
+
+  // ── helpers ──
+  const hex2rgb=h=>{const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return[r,g,b];};
+  const setFill=h=>{const[r,g,b]=hex2rgb(h);doc.setFillColor(r,g,b);};
+  const setTxt=h=>{const[r,g,b]=hex2rgb(h);doc.setTextColor(r,g,b);};
+  const setDraw=h=>{const[r,g,b]=hex2rgb(h);doc.setDrawColor(r,g,b);};
+
+  // ── HEADER BAR ──
+  setFill(DARK);doc.rect(0,0,PW,36,'F');
+  doc.setFont(FONT,'bold');doc.setFontSize(14);setTxt('#ffffff');
+  doc.text('Old North Analytics',18,23);
+  doc.setFont(FONT,'normal');doc.setFontSize(10);setTxt('rgba(255,255,255,0.6)');
+  doc.text('DispatchIQ',18+doc.getTextWidth('Old North Analytics')+6,23);
+  const dateStr=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  doc.setFontSize(9);setTxt('rgba(255,255,255,0.55)');
+  doc.text(dateStr,PW-18,23,{align:'right'});
+
+  // ── SECTION: OPTIMIZATION PRIORITIES ──
+  let y=50;
+  doc.setFont(FONT,'bold');doc.setFontSize(8);setTxt(MID);
+  doc.text('OPTIMIZATION PRIORITIES',18,y);
+  setDraw(BORDER);doc.setLineWidth(0.5);doc.line(18,y+3,PW-18,y+3);
+  y+=12;
+  const w=getW();
+  const prioLine=rankOrder.map((id,i)=>{
+    const o=OBJS.find(x=>x.id===id);
+    return `#${i+1} ${o.name}`;
+  }).join('   |   ');
+  doc.setFont(FONT,'normal');doc.setFontSize(8);setTxt('#1a2e26');
+  doc.text(prioLine,18,y,{maxWidth:PW-36});
+  y+=18;
+
+  // ── SECTION: CREW SUMMARIES ──
+  doc.setFont(FONT,'bold');doc.setFontSize(8);setTxt(MID);
+  doc.text('CREW SUMMARIES',18,y);
+  setDraw(BORDER);doc.line(18,y+3,PW-18,y+3);
+  y+=12;
+
+  const mg=(parseFloat(document.getElementById('marginPct').value)||40)/100;
+  CREWS.forEach(crew=>{
+    const asns=assignments.filter(a=>a.crewId===crew.id).sort((a,b)=>a.startTime-b.startTime);
+    const ex=CREW_EX[crew.id];
+    if(!asns.length)return;
+    const totRev=asns.reduce((s,a)=>s+a.job.val,0);
+    const totMins=asns.reduce((s,a)=>s+a.job.dur,0);
+    const hiCount=asns.filter(a=>a.job.priority==='high').length;
+
+    // colored dot
+    const[cr,cg,cb]=hex2rgb(crew.color);
+    doc.setFillColor(cr,cg,cb);doc.circle(22,y-2,3,'F');
+
+    doc.setFont(FONT,'bold');doc.setFontSize(8.5);setTxt('#1a2e26');
+    doc.text(`${crew.name} (${crew.lead})`,28,y);
+
+    // build insight line
+    const firstJob=asns[0],lastJob=asns[asns.length-1];
+    const endTime=lastJob.startTime+lastJob.job.dur;
+    const zones=[...new Set(asns.map(a=>a.job.client.split(' ').slice(-2).join(' ')))].slice(0,2).join(', ');
+    let insight=`${asns.length} jobs | ${mt(firstJob.startTime)} - ${mt(endTime)} | $${totRev.toLocaleString()} rev ($${Math.round(totRev*mg).toLocaleString()} margin) | ${Math.floor(totMins/60)}h ${totMins%60}m work`;
+    if(hiCount>0)insight+=` | ${hiCount} high-priority`;
+    if(ex.overtime)insight+=' | Overtime enabled';
+    if(ex.avoidTypes.length)insight+=` | Restricted: ${ex.avoidTypes.join(', ')}`;
+
+    doc.setFont(FONT,'normal');doc.setFontSize(7.5);setTxt('#4a6b5e');
+    doc.text(insight,28,y+9,{maxWidth:PW-46});
+    y+=20;
+  });
+
+  y+=4;
+
+  // ── SECTION: CREW TIMETABLES ──
+  doc.setFont(FONT,'bold');doc.setFontSize(8);setTxt(MID);
+  doc.text('CREW TIMETABLES',18,y);
+  setDraw(BORDER);doc.line(18,y+3,PW-18,y+3);
+  y+=10;
+
+  // Layout: 2 crews per row, 2 rows = 4 crew tables
+  const colW=(PW-36)/2;
+  const COL_POSITIONS=[18,18+colW+10];
+  const crewsWithJobs=CREWS.filter(c=>assignments.some(a=>a.crewId===c.id));
+
+  // Table column widths within each crew block
+  const TBL_W=colW-10;
+  const COL={time:70,job:TBL_W-70-55-45-40,crew_badge:0,dur:45,val:45,pri:40};
+  // col starts: time | job name | dur | val | pri
+  const CS={time:0,job:70,dur:70+COL.job,val:70+COL.job+45,pri:70+COL.job+90};
+
+  crewsWithJobs.forEach((crew,ci)=>{
+    const col=ci%2;
+    const xBase=COL_POSITIONS[col];
+    if(col===0&&ci>0){y+=6;}// small gap between rows of tables only when starting new crew row
+    let ty=y;
+
+    const asns=assignments.filter(a=>a.crewId===crew.id).sort((a,b)=>a.startTime-b.startTime);
+    const ex=CREW_EX[crew.id];
+
+    // Crew table header
+    const[cr,cg,cb]=hex2rgb(crew.color);
+    doc.setFillColor(cr,cg,cb);doc.rect(xBase,ty-8,TBL_W,14,'F');
+    doc.setFont(FONT,'bold');doc.setFontSize(8);doc.setTextColor(255,255,255);
+    doc.text(`${crew.name} — ${crew.lead}`,xBase+5,ty);
+
+    // Constraints line
+    const constraints=[];
+    if(ex.overtime)constraints.push('OT allowed');
+    constraints.push(`Max ${ex.maxJobs} jobs`);
+    if(ex.startOffset===60)constraints.push('Start 8:00 AM');
+    if(ex.startOffset===120)constraints.push('Start 9:00 AM');
+    if(ex.avoidTypes.length)constraints.push(`No: ${ex.avoidTypes.join(', ')}`);
+    doc.setFont(FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(255,255,255);
+    doc.text(constraints.join('  |  '),xBase+5,ty+7,{maxWidth:TBL_W-10});
+    ty+=18;
+
+    // Column headers
+    setFill(LIGHT);doc.rect(xBase,ty-7,TBL_W,11,'F');
+    setDraw(BORDER);doc.rect(xBase,ty-7,TBL_W,11,'S');
+    doc.setFont(FONT,'bold');doc.setFontSize(6.5);setTxt('#4a6b5e');
+    doc.text('TIME',xBase+CS.time+2,ty);
+    doc.text('JOB / CLIENT',xBase+CS.job+2,ty);
+    doc.text('DUR',xBase+CS.dur+2,ty);
+    doc.text('VALUE',xBase+CS.val+2,ty);
+    doc.text('PRI',xBase+CS.pri+2,ty);
+    ty+=8;
+
+    // Job rows
+    asns.forEach((a,ri)=>{
+      const rowH=16;
+      if(ri%2===0){setFill('#ffffff');}else{setFill('#f5f8f6');}
+      doc.rect(xBase,ty-7,TBL_W,rowH,'F');
+      setDraw(BORDER);doc.setLineWidth(0.3);doc.line(xBase,ty+rowH-7,xBase+TBL_W,ty+rowH-7);
+
+      doc.setFont(FONT,'bold');doc.setFontSize(7);setTxt('#1a2e26');
+      doc.text(`${mt(a.startTime)}`,xBase+CS.time+2,ty);
+
+      doc.setFont(FONT,'bold');doc.setFontSize(7);setTxt('#1a2e26');
+      const jobLabel=a.job.name.length>28?a.job.name.slice(0,27)+'…':a.job.name;
+      doc.text(jobLabel,xBase+CS.job+2,ty);
+      doc.setFont(FONT,'normal');doc.setFontSize(6);setTxt('#7a9e92');
+      const clientLabel=a.job.client.length>30?a.job.client.slice(0,29)+'…':a.job.client;
+      doc.text(clientLabel,xBase+CS.job+2,ty+6);
+
+      doc.setFont(FONT,'normal');doc.setFontSize(7);setTxt('#4a6b5e');
+      doc.text(`${a.job.dur}m`,xBase+CS.dur+2,ty);
+
+      doc.setFont(FONT,'bold');doc.setFontSize(7);setTxt('#1a2e26');
+      doc.text(`$${a.job.val.toLocaleString()}`,xBase+CS.val+2,ty);
+
+      // Priority badge color
+      const priColors={high:'#dc2626',medium:'#d97706',low:'#2e8b57'};
+      setTxt(priColors[a.job.priority]||'#1a2e26');
+      doc.setFont(FONT,'bold');doc.setFontSize(6.5);
+      doc.text(a.job.priority.toUpperCase(),xBase+CS.pri+2,ty);
+
+      ty+=rowH;
+    });
+
+    // Totals row
+    const totRev=asns.reduce((s,a)=>s+a.job.val,0);
+    const totMins=asns.reduce((s,a)=>s+a.job.dur,0);
+    setFill(DARK);doc.rect(xBase,ty-7,TBL_W,13,'F');
+    doc.setFont(FONT,'bold');doc.setFontSize(7);doc.setTextColor(255,255,255);
+    doc.text(`${asns.length} jobs | ${Math.floor(totMins/60)}h ${totMins%60}m`,xBase+CS.time+2,ty);
+    doc.text(`$${totRev.toLocaleString()} total`,xBase+CS.val-10,ty);
+
+    // If this is the first column crew, set the y marker to use after both columns done
+    if(col===0){window._pdfRowY=ty+12;}
+    // After second column crew (or last crew), advance y
+    if(col===1||ci===crewsWithJobs.length-1){y=window._pdfRowY||ty+12;}
+  });
+
+  // ── FOOTER ──
+  setFill(DARK);doc.rect(0,PH-22,PW,22,'F');
+  doc.setFont(FONT,'normal');doc.setFontSize(7.5);setTxt('rgba(255,255,255,0.5)');
+  doc.text('Generated by Old North Analytics | DispatchIQ | Confidential — For Internal Crew Use Only',18,PH-8);
+  doc.text(`${assignments.length} jobs scheduled | $${assignments.reduce((s,a)=>s+a.job.val,0).toLocaleString()} daily revenue`,PW-18,PH-8,{align:'right'});
+
+  doc.save(`DispatchIQ_Schedule_${new Date().toISOString().slice(0,10)}.pdf`);
 }
 
 window.addEventListener('load',init);
