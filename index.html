@@ -243,7 +243,14 @@ html,body{height:100vh;overflow:hidden;font-family:var(--font);font-size:13px;ba
 .sch-sv{font-size:16px;font-weight:700;color:var(--ona-accent);}
 .sch-sl{font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.07em;}
 
-::-webkit-scrollbar{width:4px;height:4px;}
+.rank-tip{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:var(--ona-mid);border-radius:50%;font-size:9px;font-weight:700;color:#fff;cursor:help;flex-shrink:0;position:relative;}
+.rank-tip:hover::after{content:attr(data-tip);position:absolute;left:18px;top:50%;transform:translateY(-50%);background:#1a2e26;color:#fff;padding:7px 11px;border-radius:4px;font-size:11px;width:230px;z-index:500;white-space:normal;line-height:1.5;font-weight:400;box-shadow:0 4px 16px rgba(0,0,0,.25);}
+.cfg-tip{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:var(--border2);border-radius:50%;font-size:9px;font-weight:700;color:var(--text-3);cursor:help;flex-shrink:0;position:relative;margin-left:4px;}
+.cfg-tip:hover::after{content:attr(data-tip);position:absolute;left:18px;top:50%;transform:translateY(-50%);background:#1a2e26;color:#fff;padding:7px 11px;border-radius:4px;font-size:11px;width:230px;z-index:500;white-space:normal;line-height:1.5;font-weight:400;box-shadow:0 4px 16px rgba(0,0,0,.25);}
+.mc-play{flex:1;background:var(--ona-accent);border:none;color:#fff;font-family:var(--font);font-size:11px;font-weight:700;padding:4px 2px;cursor:pointer;border-radius:2px;text-align:center;transition:all .12s;}
+.mc-play:hover{background:var(--ona-dark);}
+.mc-play.playing{background:#dc2626;}
+.mc-play.playing:hover{background:#b91c1c;}
 ::-webkit-scrollbar-track{background:var(--surface2);}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
 ::-webkit-scrollbar-thumb:hover{background:var(--ona-mid);}
@@ -328,7 +335,7 @@ html,body{height:100vh;overflow:hidden;font-family:var(--font);font-size:13px;ba
       <div class="phdr"><span class="phdr-t">Schedule Config</span></div>
       <div class="cfg-bar">
         <div class="cfg-row"><span class="cfg-lbl">Jobs per Day</span><input class="cfg-inp" type="number" id="jobCount" min="20" max="40" value="30"><span class="cfg-unit">of 40</span></div>
-        <div class="cfg-row"><span class="cfg-lbl">Annual Growth Rate</span><input class="cfg-inp" type="number" id="growthRate" min="0" max="50" value="8"><span class="cfg-unit">%/yr</span></div>
+        <div class="cfg-row"><span class="cfg-lbl">Annual Growth Rate<span class="cfg-tip" data-tip="Used to project next-year revenue in the AI Reasoning panel. It compounds this year's estimated annual revenue by this percentage. Example: 8% means projected revenue = (daily rev x 250 days x retention) x 1.08.">?</span></span><input class="cfg-inp" type="number" id="growthRate" min="0" max="50" value="8"><span class="cfg-unit">%/yr</span></div>
       </div>
       <div class="phdr"><span class="phdr-t">Crew Roster</span><span class="phdr-c">4 Active</span></div>
       <div class="crew-scroll" id="crewList"></div>
@@ -358,6 +365,7 @@ html,body{height:100vh;overflow:hidden;font-family:var(--font);font-size:13px;ba
           <input type="range" class="mc-slider" id="mcSlider" min="0" max="52" value="0" oninput="onSlider(this.value)">
           <div class="mc-btns">
             <div class="mc-btn" onclick="stepT(-1)">- 15m</div>
+            <div class="mc-play" id="playBtn" onclick="togglePlay()">&#9654; Play</div>
             <div class="mc-btn" onclick="stepT(1)">+ 15m</div>
             <div class="mc-btn" onclick="resetT()">Reset</div>
           </div>
@@ -459,11 +467,12 @@ const JOBS=[
 ];
 
 const OBJS=[
-  {id:'meet_windows',  name:'Honor client time windows', desc:'Never miss a scheduled arrival window'},
-  {id:'skill_match',   name:'Send the right specialist',  desc:'Only assign crews with exact required skills'},
-  {id:'high_value',    name:'Prioritize high-value jobs', desc:'Protect revenue by scheduling big jobs first'},
-  {id:'minimize_drive',name:'Minimize drive time',        desc:'Keep crews close to their next job'},
-  {id:'balance',       name:'Keep crews equally busy',    desc:'Distribute workload evenly across all crews'}
+  {id:'meet_windows',  name:'Honor client time windows', desc:'Never miss a scheduled arrival window',       tooltip:'Penalizes any assignment that risks finishing past the shift end. A high rank here keeps your schedule reliable and reduces rescheduling costs.'},
+  {id:'skill_match',   name:'Send the right specialist',  desc:'Only assign crews with exact required skills', tooltip:'Rewards assigning a crew whose skills precisely match the job. High rank improves first-time fix rates and reduces callbacks.'},
+  {id:'high_value',    name:'Prioritize high-value jobs', desc:'Protect revenue by scheduling big jobs first',  tooltip:'Sorts scheduling priority toward your highest-revenue jobs. High rank protects daily revenue even if some low-value jobs go unscheduled.'},
+  {id:'minimize_drive',name:'Minimize drive time',        desc:'Keep crews close to their next job',           tooltip:'Scores assignments lower when the crew is far away. High rank reduces fuel cost and wasted hours between jobs.'},
+  {id:'balance',       name:'Keep crews equally busy',    desc:'Distribute workload evenly across all crews',  tooltip:'Rewards assigning to under-utilized crews. High rank spreads wear, overtime risk, and earnings evenly across the team.'},
+  {id:'cluster_jobs',  name:'Group nearby jobs together', desc:'Keep each crew in a tight geographic zone',    tooltip:'Rewards keeping consecutive jobs close together. High rank reduces total miles driven per crew and simplifies end-of-day routing.'}
 ];
 
 // ── STATE ─────────────────────────────────────────────────────
@@ -471,6 +480,9 @@ let assignments=[], activeJobs=[];
 let rankOrder=OBJS.map(o=>o.id);
 let map, jMarkers=[], rLayers=[], hLayers=[];
 let sliderStep=0;
+let routeGeoms={};  // stores road-following coords per crew: {crewId: [[lat,lng],...]}
+let crewStopTimes={}; // cumulative times along route for interpolation: {crewId: [{lat,lng,time},...]}
+let playInterval=null, isPlaying=false;
 const WS=7*60, WE=20*60, STEPS=52;
 const PC={high:'#dc2626',medium:'#d97706',low:'#2e8b57'};
 
@@ -519,7 +531,7 @@ function renderObjs(){
     const o=OBJS.find(x=>x.id===id);
     return `<li class="rank-item" draggable="true" data-id="${id}" ondragstart="ds(event)" ondragover="dov(event)" ondrop="ddr(event)" ondragend="de(event)">
       <div class="rank-num">${i+1}</div>
-      <div><div class="rank-name">${o.name}</div><div class="rank-desc">${o.desc}</div></div>
+      <div style="flex:1"><div style="display:flex;align-items:center;gap:4px"><div class="rank-name">${o.name}</div><span class="rank-tip" data-tip="${o.tooltip}">?</span></div><div class="rank-desc">${o.desc}</div></div>
       <span class="drag-hdl">&#8597;</span></li>`;
   }).join('');
 }
@@ -532,7 +544,7 @@ function ddr(e){
   const tid=e.currentTarget.dataset.id;
   if(dragId&&dragId!==tid){const si=rankOrder.indexOf(dragId),ti=rankOrder.indexOf(tid);rankOrder.splice(si,1);rankOrder.splice(ti,0,dragId);renderObjs();}
 }
-function getW(){const wts=[100,75,55,35,20],w={};rankOrder.forEach((id,i)=>{w[id]=wts[i]||10;});return w;}
+function getW(){const wts=[100,75,55,35,20,10],w={};rankOrder.forEach((id,i)=>{w[id]=wts[i]||10;});return w;}
 
 // ── CREW RENDER + DRAWERS ─────────────────────────────────────
 function renderCrews(){
@@ -599,12 +611,45 @@ async function fetchRoute(coords){
 
 async function drawRoutes(){
   rLayers.forEach(l=>map.removeLayer(l));rLayers=[];
+  routeGeoms={};crewStopTimes={};
   for(const crew of CREWS){
     const asns=assignments.filter(a=>a.crewId===crew.id).sort((a,b)=>a.startTime-b.startTime);
     if(!asns.length)continue;
     const stops=[[crew.startLng,crew.startLat],...asns.map(a=>[a.job.lng,a.job.lat])];
+
+    // Build stop waypoint times: depot departs at WS+startOffset, each asn has a startTime
+    const stopTimes=[WS+CREW_EX[crew.id].startOffset,...asns.map(a=>a.startTime)];
+
     let pts=await fetchRoute(stops);
     if(!pts)pts=stops.map(s=>[s[1],s[0]]);
+    routeGeoms[crew.id]=pts;
+
+    // For each segment between waypoints, distribute the route geometry proportionally
+    // We'll build a flat array of {lat,lng,time} for linear interpolation along the road
+    const segPts=[];
+    // Map each route point to a time by distributing points evenly across each segment
+    // Approach: for each consecutive pair of stopTimes, assign the portion of route points
+    const totalPts=pts.length;
+    const segCount=stops.length-1;
+
+    if(segCount>0){
+      const ptsPerSeg=Math.max(1,Math.floor(totalPts/segCount));
+      stops.forEach((_,si)=>{
+        if(si>=segCount)return;
+        const startIdx=si*ptsPerSeg;
+        const endIdx=si===segCount-1?totalPts-1:Math.min((si+1)*ptsPerSeg,totalPts-1);
+        const t0=stopTimes[si],t1=stopTimes[si+1];
+        const segLen=endIdx-startIdx;
+        for(let pi=startIdx;pi<=endIdx;pi++){
+          const frac=segLen>0?(pi-startIdx)/segLen:0;
+          segPts.push({lat:pts[pi][0],lng:pts[pi][1],time:t0+frac*(t1-t0)});
+        }
+      });
+    }else{
+      segPts.push({lat:pts[0][0],lng:pts[0][1],time:stopTimes[0]});
+    }
+    crewStopTimes[crew.id]=segPts;
+
     const layer=L.polyline(pts,{color:crew.color,weight:3.5,opacity:.75,lineJoin:'round'}).addTo(map);
     rLayers.push(layer);
   }
@@ -613,23 +658,69 @@ async function drawRoutes(){
 // ── TIME SLIDER ───────────────────────────────────────────────
 function mt(m){const h=Math.floor(m/60),mn=m%60,ap=h>=12?'PM':'AM',hh=h>12?h-12:(h===0?12:h);return `${hh}:${mn.toString().padStart(2,'0')} ${ap}`;}
 function onSlider(v){sliderStep=parseInt(v);const mins=WS+sliderStep*15;document.getElementById('mcTime').textContent=mt(mins);drawTimeState(mins);}
-function stepT(d){const nv=Math.max(0,Math.min(STEPS,sliderStep+d));document.getElementById('mcSlider').value=nv;onSlider(nv);}
-function resetT(){document.getElementById('mcSlider').value=0;onSlider(0);}
+function stepT(d){stopPlay();const nv=Math.max(0,Math.min(STEPS,sliderStep+d));document.getElementById('mcSlider').value=nv;onSlider(nv);}
+function resetT(){stopPlay();document.getElementById('mcSlider').value=0;onSlider(0);}
+
+function togglePlay(){
+  if(isPlaying){stopPlay();}
+  else{startPlay();}
+}
+function startPlay(){
+  if(!assignments.length)return;
+  isPlaying=true;
+  const btn=document.getElementById('playBtn');
+  btn.textContent='&#9646;&#9646; Pause';btn.classList.add('playing');
+  // Reset to start if at end
+  if(sliderStep>=STEPS){document.getElementById('mcSlider').value=0;onSlider(0);}
+  // 13 seconds total for STEPS=52 steps => interval = 13000/52 = 250ms per step
+  const intervalMs=Math.round(13000/STEPS);
+  playInterval=setInterval(()=>{
+    if(sliderStep>=STEPS){stopPlay();return;}
+    const nv=sliderStep+1;
+    document.getElementById('mcSlider').value=nv;
+    onSlider(nv);
+  },intervalMs);
+}
+function stopPlay(){
+  isPlaying=false;
+  if(playInterval){clearInterval(playInterval);playInterval=null;}
+  const btn=document.getElementById('playBtn');
+  if(btn){btn.innerHTML='&#9654; Play';btn.classList.remove('playing');}
+}
 
 function drawTimeState(mins){
   hLayers.forEach(l=>map.removeLayer(l));hLayers=[];
   CREWS.forEach(crew=>{
-    const asns=assignments.filter(a=>a.crewId===crew.id).sort((a,b)=>a.startTime-b.startTime);
+    const asns=assignments.filter(a=>a.crewId===crew.id);
     if(!asns.length)return;
-    const pts=[{lat:crew.startLat,lng:crew.startLng,time:WS},...asns.map(a=>({lat:a.job.lat,lng:a.job.lng,time:a.startTime}))];
-    for(let i=0;i<pts.length;i++){
-      if(pts[i].time>mins&&i>0){
-        const prev=pts[i-1];
-        const frac=Math.min(1,(mins-prev.time)/Math.max(1,pts[i].time-prev.time));
-        const il=prev.lat+(pts[i].lat-prev.lat)*frac,ilg=prev.lng+(pts[i].lng-prev.lng)*frac;
-        const pi=L.divIcon({html:`<div style="width:12px;height:12px;background:${crew.color};border:2px solid #fff;border-radius:50%;box-shadow:0 0 6px ${crew.color}80"></div>`,iconSize:[12,12],iconAnchor:[6,6],className:''});
-        const pm=L.marker([il,ilg],{icon:pi}).addTo(map).bindTooltip(`${crew.name} \u2014 ${mt(mins)}`);
-        hLayers.push(pm);break;
+
+    const segPts=crewStopTimes[crew.id];
+    if(!segPts||!segPts.length)return;
+
+    // Find position along road geometry at current time
+    // If before first point time, park at depot
+    if(mins<=segPts[0].time){
+      const ic=L.divIcon({html:`<div style="width:13px;height:13px;background:${crew.color};border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px ${crew.color}80"></div>`,iconSize:[13,13],iconAnchor:[6,6],className:''});
+      hLayers.push(L.marker([segPts[0].lat,segPts[0].lng],{icon:ic}).addTo(map).bindTooltip(`${crew.name} \u2014 ${mt(mins)}`));
+      return;
+    }
+    // If after last point, park at last job
+    if(mins>=segPts[segPts.length-1].time){
+      const last=segPts[segPts.length-1];
+      const ic=L.divIcon({html:`<div style="width:13px;height:13px;background:${crew.color};border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px ${crew.color}80"></div>`,iconSize:[13,13],iconAnchor:[6,6],className:''});
+      hLayers.push(L.marker([last.lat,last.lng],{icon:ic}).addTo(map).bindTooltip(`${crew.name} \u2014 ${mt(mins)}`));
+      return;
+    }
+    // Interpolate between consecutive road points
+    for(let i=1;i<segPts.length;i++){
+      if(segPts[i].time>=mins){
+        const prev=segPts[i-1],next=segPts[i];
+        const frac=(mins-prev.time)/Math.max(0.001,next.time-prev.time);
+        const lat=prev.lat+(next.lat-prev.lat)*frac;
+        const lng=prev.lng+(next.lng-prev.lng)*frac;
+        const ic=L.divIcon({html:`<div style="width:13px;height:13px;background:${crew.color};border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px ${crew.color}80"></div>`,iconSize:[13,13],iconAnchor:[6,6],className:''});
+        hLayers.push(L.marker([lat,lng],{icon:ic}).addTo(map).bindTooltip(`${crew.name} \u2014 ${mt(mins)}`));
+        break;
       }
     }
   });
@@ -693,7 +784,7 @@ function execute(){
       score+=inWin?(w.meet_windows||0):-(w.meet_windows||0)*0.4;
       rsn.push(inWin?`Finishes by ${mt(start+job.dur)}, within shift.${ex.overtime?' Overtime enabled.':''} Window priority #${rankOrder.indexOf('meet_windows')+1}.`:`Tight finish at ${mt(start+job.dur)}.`);
       const nearby=queue.filter(jj=>!assignments.find(a=>a.job.id===jj.id)&&jj.id!==job.id&&canDo(crew,jj)&&!ex.avoidTypes.some(t=>jj.skills.includes(t))&&hav(job.lat,job.lng,jj.lat,jj.lng)<5);
-      if(nearby.length){score+=8;rsn.push(`Geographic cluster: ${nearby.length} more compatible job${nearby.length>1?'s':''} within 5 mi.`);}
+      if(nearby.length){score+=8*(w.cluster_jobs||0)/100;rsn.push(`Geographic cluster: ${nearby.length} more compatible job${nearby.length>1?'s':''} within 5 mi. Cluster priority #${rankOrder.indexOf('cluster_jobs')+1}.`);}
       else rsn.push('No dense cluster nearby; crew routes optimally after this stop.');
       if(score>bScore){bScore=score;best=crew;bRsn=rsn;bStart=start;}
     });
