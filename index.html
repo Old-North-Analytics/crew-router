@@ -671,7 +671,7 @@ function startPlay(){
   if(!assignments.length)return;
   isPlaying=true;
   const btn=document.getElementById('playBtn');
-  btn.textContent='&#9646;&#9646; Pause';btn.classList.add('playing');
+  btn.textContent='Pause';btn.classList.add('playing');
   // Reset to start if at end
   if(sliderStep>=STEPS){document.getElementById('mcSlider').value=0;onSlider(0);}
   // 13 seconds total for STEPS=52 steps => interval = 13000/52 = 250ms per step
@@ -868,188 +868,347 @@ function buildReasoning(){
 }
 
 // ── PDF EXPORT ────────────────────────────────────────────────
+// ── PDF EXPORT ────────────────────────────────────────────────
 function exportPDF(){
   if(!assignments.length){alert('Run the optimizer first.');return;}
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
+
+  // ── constants ──
   const PW=792,PH=612;
-  const DARK='#22493D',MID='#537C6F',LIGHT='#EAF6F2',BORDER='#c8ddd8';
+  const ML=20,MR=20,MT=20;  // margins
   const FONT='helvetica';
-
-  // ── helpers ──
-  const hex2rgb=h=>{const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return[r,g,b];};
-  const setFill=h=>{const[r,g,b]=hex2rgb(h);doc.setFillColor(r,g,b);};
-  const setTxt=h=>{const[r,g,b]=hex2rgb(h);doc.setTextColor(r,g,b);};
-  const setDraw=h=>{const[r,g,b]=hex2rgb(h);doc.setDrawColor(r,g,b);};
-
-  // ── HEADER BAR ──
-  setFill(DARK);doc.rect(0,0,PW,36,'F');
-  doc.setFont(FONT,'bold');doc.setFontSize(14);setTxt('#ffffff');
-  doc.text('Old North Analytics',18,23);
-  doc.setFont(FONT,'normal');doc.setFontSize(10);setTxt('rgba(255,255,255,0.6)');
-  doc.text('DispatchIQ',18+doc.getTextWidth('Old North Analytics')+6,23);
-  const dateStr=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-  doc.setFontSize(9);setTxt('rgba(255,255,255,0.55)');
-  doc.text(dateStr,PW-18,23,{align:'right'});
-
-  // ── SECTION: OPTIMIZATION PRIORITIES ──
-  let y=50;
-  doc.setFont(FONT,'bold');doc.setFontSize(8);setTxt(MID);
-  doc.text('OPTIMIZATION PRIORITIES',18,y);
-  setDraw(BORDER);doc.setLineWidth(0.5);doc.line(18,y+3,PW-18,y+3);
-  y+=12;
-  const w=getW();
-  const prioLine=rankOrder.map((id,i)=>{
-    const o=OBJS.find(x=>x.id===id);
-    return `#${i+1} ${o.name}`;
-  }).join('   |   ');
-  doc.setFont(FONT,'normal');doc.setFontSize(8);setTxt('#1a2e26');
-  doc.text(prioLine,18,y,{maxWidth:PW-36});
-  y+=18;
-
-  // ── SECTION: CREW SUMMARIES ──
-  doc.setFont(FONT,'bold');doc.setFontSize(8);setTxt(MID);
-  doc.text('CREW SUMMARIES',18,y);
-  setDraw(BORDER);doc.line(18,y+3,PW-18,y+3);
-  y+=12;
-
   const mg=(parseFloat(document.getElementById('marginPct').value)||40)/100;
-  CREWS.forEach(crew=>{
+
+  // ── color helpers: only RGB integers, no CSS strings ──
+  const hr=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const fill=h=>{const[r,g,b]=hr(h);doc.setFillColor(r,g,b);};
+  const ink=h=>{const[r,g,b]=hr(h);doc.setTextColor(r,g,b);};
+  const stroke=h=>{const[r,g,b]=hr(h);doc.setDrawColor(r,g,b);};
+
+  // ── shared: draw page header ──
+  function pageHeader(label){
+    fill('#22493D');doc.rect(0,0,PW,34,'F');
+    doc.setFont(FONT,'bold');doc.setFontSize(13);doc.setTextColor(255,255,255);
+    doc.text('Old North Analytics',ML,22);
+    const onaW=doc.getTextWidth('Old North Analytics');
+    doc.setFont(FONT,'normal');doc.setFontSize(9);doc.setTextColor(160,200,185);
+    doc.text('  |  DispatchIQ  |  '+label,ML+onaW,22);
+    const dateStr=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    doc.setFontSize(8);doc.setTextColor(140,185,170);
+    doc.text(dateStr,PW-MR,22,{align:'right'});
+  }
+
+  // ── shared: draw page footer ──
+  function pageFooter(pageNum,pageTotal){
+    fill('#22493D');doc.rect(0,PH-22,PW,22,'F');
+    doc.setFont(FONT,'normal');doc.setFontSize(7);doc.setTextColor(140,185,170);
+    doc.text('Old North Analytics  |  DispatchIQ  |  For Internal Use Only',ML,PH-8);
+    doc.text(`Page ${pageNum} of ${pageTotal}  |  ${assignments.length} jobs  |  $${assignments.reduce((s,a)=>s+a.job.val,0).toLocaleString()} daily revenue`,PW-MR,PH-8,{align:'right'});
+  }
+
+  // ── shared: section label ──
+  function sectionLabel(label,y){
+    doc.setFont(FONT,'bold');doc.setFontSize(7.5);ink('#537C6F');
+    doc.text(label,ML,y);
+    stroke('#c8ddd8');doc.setLineWidth(0.4);doc.line(ML,y+3,PW-MR,y+3);
+    return y+14;
+  }
+
+  // ════════════════════════════════════════════
+  // PAGE 1: SCHEDULE
+  // ════════════════════════════════════════════
+  pageHeader('Crew Schedule');
+  let y=44;
+
+  // ── 1A: Optimization Priorities ──
+  y=sectionLabel('OPTIMIZATION PRIORITIES',y);
+  const w=getW();
+  rankOrder.forEach((id,i)=>{
+    const o=OBJS.find(x=>x.id===id);
+    const xPos=ML+(i*(PW-ML-MR)/6);
+    // rank bubble
+    fill('#537C6F');doc.circle(xPos+7,y-2,6,'F');
+    doc.setFont(FONT,'bold');doc.setFontSize(8);doc.setTextColor(255,255,255);
+    doc.text(String(i+1),xPos+7,y+1,{align:'center'});
+    // label
+    doc.setFont(FONT,'bold');doc.setFontSize(7);ink('#1a2e26');
+    doc.text(o.name,xPos+16,y,{maxWidth:(PW-ML-MR)/6-18});
+    doc.setFont(FONT,'normal');doc.setFontSize(6);ink('#4a6b5e');
+    doc.text(o.desc,xPos+16,y+7,{maxWidth:(PW-ML-MR)/6-18});
+  });
+  y+=22;
+
+  // ── 1B: Crew Summaries ──
+  y=sectionLabel('CREW SUMMARIES',y);
+  const crewsWithJobs=CREWS.filter(c=>assignments.some(a=>a.crewId===c.id));
+  crewsWithJobs.forEach(crew=>{
     const asns=assignments.filter(a=>a.crewId===crew.id).sort((a,b)=>a.startTime-b.startTime);
     const ex=CREW_EX[crew.id];
-    if(!asns.length)return;
     const totRev=asns.reduce((s,a)=>s+a.job.val,0);
     const totMins=asns.reduce((s,a)=>s+a.job.dur,0);
     const hiCount=asns.filter(a=>a.job.priority==='high').length;
-
-    // colored dot
-    const[cr,cg,cb]=hex2rgb(crew.color);
-    doc.setFillColor(cr,cg,cb);doc.circle(22,y-2,3,'F');
-
-    doc.setFont(FONT,'bold');doc.setFontSize(8.5);setTxt('#1a2e26');
-    doc.text(`${crew.name} (${crew.lead})`,28,y);
-
-    // build insight line
     const firstJob=asns[0],lastJob=asns[asns.length-1];
     const endTime=lastJob.startTime+lastJob.job.dur;
-    const zones=[...new Set(asns.map(a=>a.job.client.split(' ').slice(-2).join(' ')))].slice(0,2).join(', ');
-    let insight=`${asns.length} jobs | ${mt(firstJob.startTime)} - ${mt(endTime)} | $${totRev.toLocaleString()} rev ($${Math.round(totRev*mg).toLocaleString()} margin) | ${Math.floor(totMins/60)}h ${totMins%60}m work`;
-    if(hiCount>0)insight+=` | ${hiCount} high-priority`;
-    if(ex.overtime)insight+=' | Overtime enabled';
-    if(ex.avoidTypes.length)insight+=` | Restricted: ${ex.avoidTypes.join(', ')}`;
 
-    doc.setFont(FONT,'normal');doc.setFontSize(7.5);setTxt('#4a6b5e');
-    doc.text(insight,28,y+9,{maxWidth:PW-46});
-    y+=20;
+    // colored crew dot
+    const[cr,cg,cb]=hr(crew.color);
+    doc.setFillColor(cr,cg,cb);doc.circle(ML+5,y-2,4,'F');
+
+    doc.setFont(FONT,'bold');doc.setFontSize(8);ink('#1a2e26');
+    doc.text(`${crew.name}  (${crew.lead})`,ML+13,y);
+
+    let summary=`${asns.length} jobs  |  ${mt(firstJob.startTime)} - ${mt(endTime)}  |  $${totRev.toLocaleString()} revenue  |  $${Math.round(totRev*mg).toLocaleString()} margin  |  ${Math.floor(totMins/60)}h ${totMins%60}m scheduled`;
+    if(hiCount)summary+=`  |  ${hiCount} high-priority job${hiCount>1?'s':''}`;
+    const constraints=[];
+    if(ex.overtime)constraints.push('OT allowed');
+    if(ex.startOffset===60)constraints.push('8:00 AM start');
+    if(ex.startOffset===120)constraints.push('9:00 AM start');
+    if(ex.maxJobs<6)constraints.push(`Max ${ex.maxJobs} jobs`);
+    if(ex.avoidTypes.length)constraints.push(`Restricted: ${ex.avoidTypes.join(', ')}`);
+    if(constraints.length)summary+=`  |  ${constraints.join('  |  ')}`;
+
+    doc.setFont(FONT,'normal');doc.setFontSize(7);ink('#4a6b5e');
+    doc.text(summary,ML+13,y+8,{maxWidth:PW-ML-MR-13});
+    y+=19;
   });
-
   y+=4;
 
-  // ── SECTION: CREW TIMETABLES ──
-  doc.setFont(FONT,'bold');doc.setFontSize(8);setTxt(MID);
-  doc.text('CREW TIMETABLES',18,y);
-  setDraw(BORDER);doc.line(18,y+3,PW-18,y+3);
-  y+=10;
+  // ── 1C: Crew Timetables — 2x2 grid ──
+  y=sectionLabel('CREW TIMETABLES',y);
 
-  // Layout: 2 crews per row, 2 rows = 4 crew tables
-  const colW=(PW-36)/2;
-  const COL_POSITIONS=[18,18+colW+10];
-  const crewsWithJobs=CREWS.filter(c=>assignments.some(a=>a.crewId===c.id));
+  const GAP=10;
+  const TBL_W=(PW-ML-MR-GAP)/2;
+  const xCols=[ML, ML+TBL_W+GAP];
 
-  // Table column widths within each crew block
-  const TBL_W=colW-10;
-  const COL={time:70,job:TBL_W-70-55-45-40,crew_badge:0,dur:45,val:45,pri:40};
-  // col starts: time | job name | dur | val | pri
-  const CS={time:0,job:70,dur:70+COL.job,val:70+COL.job+45,pri:70+COL.job+90};
+  // column widths inside each table
+  const C_TIME=68,C_DUR=32,C_VAL=48,C_PRI=28;
+  const C_JOB=TBL_W-C_TIME-C_DUR-C_VAL-C_PRI;
+  // x offsets within table
+  const cx={time:0,job:C_TIME,dur:C_TIME+C_JOB,val:C_TIME+C_JOB+C_DUR,pri:C_TIME+C_JOB+C_DUR+C_VAL};
+
+  // compute row height needed: 2 lines per job row
+  const ROW_H=14;
+  const HDR_H=22; // crew name + constraints
+  const COL_HDR_H=11;
+  const TOTAL_H=13;
+
+  // track bottom of col 0 to sync after each pair
+  let col0Bottom=y;
+  let rowStartY=y;  // y at the start of each crew pair — both columns start here
 
   crewsWithJobs.forEach((crew,ci)=>{
     const col=ci%2;
-    const xBase=COL_POSITIONS[col];
-    if(col===0&&ci>0){y+=6;}// small gap between rows of tables only when starting new crew row
-    let ty=y;
+    const xB=xCols[col];
+    // both columns in a pair start at the same rowStartY
+    if(col===0){rowStartY=y;}
+    let ty=rowStartY;
 
     const asns=assignments.filter(a=>a.crewId===crew.id).sort((a,b)=>a.startTime-b.startTime);
     const ex=CREW_EX[crew.id];
 
-    // Crew table header
-    const[cr,cg,cb]=hex2rgb(crew.color);
-    doc.setFillColor(cr,cg,cb);doc.rect(xBase,ty-8,TBL_W,14,'F');
-    doc.setFont(FONT,'bold');doc.setFontSize(8);doc.setTextColor(255,255,255);
-    doc.text(`${crew.name} — ${crew.lead}`,xBase+5,ty);
+    // ── crew header rect ──
+    const[cr,cg,cb]=hr(crew.color);
+    doc.setFillColor(cr,cg,cb);
+    doc.rect(xB,ty,TBL_W,HDR_H,'F');
+    doc.setFont(FONT,'bold');doc.setFontSize(8.5);doc.setTextColor(255,255,255);
+    doc.text(`${crew.name}  —  ${crew.lead}`,xB+5,ty+12);
 
-    // Constraints line
     const constraints=[];
-    if(ex.overtime)constraints.push('OT allowed');
     constraints.push(`Max ${ex.maxJobs} jobs`);
+    if(ex.overtime)constraints.push('OT allowed');
     if(ex.startOffset===60)constraints.push('Start 8:00 AM');
     if(ex.startOffset===120)constraints.push('Start 9:00 AM');
     if(ex.avoidTypes.length)constraints.push(`No: ${ex.avoidTypes.join(', ')}`);
-    doc.setFont(FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(255,255,255);
-    doc.text(constraints.join('  |  '),xBase+5,ty+7,{maxWidth:TBL_W-10});
-    ty+=18;
+    doc.setFont(FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(210,235,225);
+    doc.text(constraints.join('   |   '),xB+5,ty+21,{maxWidth:TBL_W-10});
+    ty+=HDR_H;
 
-    // Column headers
-    setFill(LIGHT);doc.rect(xBase,ty-7,TBL_W,11,'F');
-    setDraw(BORDER);doc.rect(xBase,ty-7,TBL_W,11,'S');
-    doc.setFont(FONT,'bold');doc.setFontSize(6.5);setTxt('#4a6b5e');
-    doc.text('TIME',xBase+CS.time+2,ty);
-    doc.text('JOB / CLIENT',xBase+CS.job+2,ty);
-    doc.text('DUR',xBase+CS.dur+2,ty);
-    doc.text('VALUE',xBase+CS.val+2,ty);
-    doc.text('PRI',xBase+CS.pri+2,ty);
-    ty+=8;
+    // ── column header row ──
+    fill('#EAF6F2');doc.rect(xB,ty,TBL_W,COL_HDR_H,'F');
+    stroke('#c8ddd8');doc.setLineWidth(0.3);
+    doc.rect(xB,ty,TBL_W,COL_HDR_H,'S');
+    doc.setFont(FONT,'bold');doc.setFontSize(6.5);ink('#537C6F');
+    doc.text('TIME',       xB+cx.time+2, ty+7);
+    doc.text('JOB / CLIENT',xB+cx.job+2,  ty+7);
+    doc.text('DUR',        xB+cx.dur+2,  ty+7);
+    doc.text('VALUE',      xB+cx.val+2,  ty+7);
+    doc.text('PRI',        xB+cx.pri+2,  ty+7);
+    ty+=COL_HDR_H;
 
-    // Job rows
+    // ── job rows ──
+    const priColor={high:'#dc2626',medium:'#d97706',low:'#2e8b57'};
+    const FOOTER_SAFE=PH-30;
     asns.forEach((a,ri)=>{
-      const rowH=16;
-      if(ri%2===0){setFill('#ffffff');}else{setFill('#f5f8f6');}
-      doc.rect(xBase,ty-7,TBL_W,rowH,'F');
-      setDraw(BORDER);doc.setLineWidth(0.3);doc.line(xBase,ty+rowH-7,xBase+TBL_W,ty+rowH-7);
+      if(ty+ROW_H>FOOTER_SAFE)return; // skip rows that would bleed into footer
+      if(ri%2===0){fill('#ffffff');}else{fill('#f5f8f6');}
+      doc.rect(xB,ty,TBL_W,ROW_H,'F');
+      stroke('#c8ddd8');doc.setLineWidth(0.25);
+      doc.line(xB,ty+ROW_H,xB+TBL_W,ty+ROW_H);
 
-      doc.setFont(FONT,'bold');doc.setFontSize(7);setTxt('#1a2e26');
-      doc.text(`${mt(a.startTime)}`,xBase+CS.time+2,ty);
+      // time
+      doc.setFont(FONT,'bold');doc.setFontSize(7);ink('#1a2e26');
+      doc.text(mt(a.startTime),xB+cx.time+2,ty+9);
 
-      doc.setFont(FONT,'bold');doc.setFontSize(7);setTxt('#1a2e26');
-      const jobLabel=a.job.name.length>28?a.job.name.slice(0,27)+'…':a.job.name;
-      doc.text(jobLabel,xBase+CS.job+2,ty);
-      doc.setFont(FONT,'normal');doc.setFontSize(6);setTxt('#7a9e92');
-      const clientLabel=a.job.client.length>30?a.job.client.slice(0,29)+'…':a.job.client;
-      doc.text(clientLabel,xBase+CS.job+2,ty+6);
+      // job name + client
+      const jname=a.job.name.length>30?a.job.name.slice(0,29)+'…':a.job.name;
+      const cname=a.job.client.length>32?a.job.client.slice(0,31)+'…':a.job.client;
+      doc.setFont(FONT,'bold');doc.setFontSize(7);ink('#1a2e26');
+      doc.text(jname,xB+cx.job+2,ty+6);
+      doc.setFont(FONT,'normal');doc.setFontSize(5.5);ink('#7a9e92');
+      doc.text(cname,xB+cx.job+2,ty+12);
 
-      doc.setFont(FONT,'normal');doc.setFontSize(7);setTxt('#4a6b5e');
-      doc.text(`${a.job.dur}m`,xBase+CS.dur+2,ty);
+      // duration
+      doc.setFont(FONT,'normal');doc.setFontSize(7);ink('#4a6b5e');
+      doc.text(`${a.job.dur}m`,xB+cx.dur+2,ty+9);
 
-      doc.setFont(FONT,'bold');doc.setFontSize(7);setTxt('#1a2e26');
-      doc.text(`$${a.job.val.toLocaleString()}`,xBase+CS.val+2,ty);
+      // value
+      doc.setFont(FONT,'bold');doc.setFontSize(7);ink('#1a2e26');
+      doc.text(`$${a.job.val.toLocaleString()}`,xB+cx.val+2,ty+9);
 
-      // Priority badge color
-      const priColors={high:'#dc2626',medium:'#d97706',low:'#2e8b57'};
-      setTxt(priColors[a.job.priority]||'#1a2e26');
+      // priority
+      const[pr,pg,pb]=hr(priColor[a.job.priority]||'#1a2e26');
+      doc.setTextColor(pr,pg,pb);
       doc.setFont(FONT,'bold');doc.setFontSize(6.5);
-      doc.text(a.job.priority.toUpperCase(),xBase+CS.pri+2,ty);
+      doc.text(a.job.priority.slice(0,3).toUpperCase(),xB+cx.pri+2,ty+9);
 
-      ty+=rowH;
+      ty+=ROW_H;
     });
 
-    // Totals row
+    // ── totals row ──
     const totRev=asns.reduce((s,a)=>s+a.job.val,0);
     const totMins=asns.reduce((s,a)=>s+a.job.dur,0);
-    setFill(DARK);doc.rect(xBase,ty-7,TBL_W,13,'F');
+    fill('#22493D');doc.rect(xB,ty,TBL_W,TOTAL_H,'F');
     doc.setFont(FONT,'bold');doc.setFontSize(7);doc.setTextColor(255,255,255);
-    doc.text(`${asns.length} jobs | ${Math.floor(totMins/60)}h ${totMins%60}m`,xBase+CS.time+2,ty);
-    doc.text(`$${totRev.toLocaleString()} total`,xBase+CS.val-10,ty);
+    doc.text(`${asns.length} jobs  |  ${Math.floor(totMins/60)}h ${totMins%60}m work`,xB+cx.time+2,ty+9);
+    doc.text(`$${totRev.toLocaleString()}  ($${Math.round(totRev*mg).toLocaleString()} margin)`,xB+TBL_W-4,ty+9,{align:'right'});
+    ty+=TOTAL_H;
 
-    // If this is the first column crew, set the y marker to use after both columns done
-    if(col===0){window._pdfRowY=ty+12;}
-    // After second column crew (or last crew), advance y
-    if(col===1||ci===crewsWithJobs.length-1){y=window._pdfRowY||ty+12;}
+    // track bottom and advance y
+    if(col===0){col0Bottom=ty;}
+    // after col1 (or last crew if odd count), advance y past the taller of the two columns
+    if(col===1||ci===crewsWithJobs.length-1){
+      y=Math.max(col0Bottom,ty)+10;
+    }
   });
 
-  // ── FOOTER ──
-  setFill(DARK);doc.rect(0,PH-22,PW,22,'F');
-  doc.setFont(FONT,'normal');doc.setFontSize(7.5);setTxt('rgba(255,255,255,0.5)');
-  doc.text('Generated by Old North Analytics | DispatchIQ | Confidential — For Internal Crew Use Only',18,PH-8);
-  doc.text(`${assignments.length} jobs scheduled | $${assignments.reduce((s,a)=>s+a.job.val,0).toLocaleString()} daily revenue`,PW-18,PH-8,{align:'right'});
+  pageFooter(1,2);
+
+  // ════════════════════════════════════════════
+  // PAGE 2: AI REASONING
+  // ════════════════════════════════════════════
+  doc.addPage();
+  pageHeader('AI Reasoning — Assignment Decisions');
+  y=44;
+
+  // ── executive summary strip ──
+  const totVal=assignments.reduce((s,a)=>s+a.job.val,0);
+  const hiCov=assignments.filter(a=>a.job.priority==='high').length;
+  const hiTot=assignments.filter(a=>a.job.priority==='high').length; // already filtered
+  const utils=CREWS.map(c=>Math.min(100,Math.round(assignments.filter(a=>a.crewId===c.id).reduce((s,a)=>s+a.job.dur,0)/480*100)));
+  const avgUtil=Math.round(utils.reduce((a,b)=>a+b,0)/utils.length);
+  const growth=(parseFloat(document.getElementById('growthRate').value)||8)/100;
+  const ww=getW();
+  const ret=0.60+((ww.meet_windows||0)/100*0.5+(ww.skill_match||0)/100*0.5)*0.30;
+  const annGr=assignments.length*ret*(totVal/Math.max(1,assignments.length))*250*(1+growth);
+
+  const statW=(PW-ML-MR)/5;
+  [{label:'Jobs Scheduled',val:`${assignments.length} / ${activeJobs.length}`},
+   {label:'Daily Revenue',  val:`$${totVal.toLocaleString()}`},
+   {label:'Avg Utilization',val:`${avgUtil}%`},
+   {label:'Est. Retention', val:`${Math.round(ret*100)}%`},
+   {label:'Annual w/ Growth',val:`$${Math.round(annGr/1000)}K`}
+  ].forEach((s,i)=>{
+    fill('#EAF6F2');stroke('#c8ddd8');doc.setLineWidth(0.4);
+    doc.rect(ML+i*statW,y,statW-4,26,'FD');
+    doc.setFont(FONT,'bold');doc.setFontSize(11);ink('#537C6F');
+    doc.text(s.val,ML+i*statW+(statW-4)/2,y+13,{align:'center'});
+    doc.setFont(FONT,'normal');doc.setFontSize(6.5);ink('#7a9e92');
+    doc.text(s.label,ML+i*statW+(statW-4)/2,y+22,{align:'center'});
+  });
+  y+=34;
+
+  // ── top priorities note ──
+  doc.setFont(FONT,'italic');doc.setFontSize(7.5);ink('#4a6b5e');
+  const topPrios=rankOrder.slice(0,3).map(id=>OBJS.find(o=>o.id===id).name).join(' > ');
+  doc.text(`Scheduling weighted by: ${topPrios}`,ML,y);
+  y+=14;
+
+  // ── per-assignment reasoning: 2 columns ──
+  const sorted=[...assignments].sort((a,b)=>{
+    const ci=CREWS.findIndex(c=>c.id===a.crewId)-CREWS.findIndex(c=>c.id===b.crewId);
+    return ci!==0?ci:a.startTime-b.startTime;
+  });
+
+  const RCOL_W=(PW-ML-MR-GAP)/2;
+  const rCols=[ML,ML+RCOL_W+GAP];
+  const FOOTER_Y=PH-28;
+  let pageCount=2;
+  let rColY=[y,y];
+  let colIdx=0;
+
+  function ensureReasoningPage(neededH){
+    // if the shorter column can't fit neededH, add a new page
+    const minY=Math.min(rColY[0],rColY[1]);
+    if(minY+neededH>FOOTER_Y){
+      pageFooter(pageCount,pageCount); // draw footer on current page (total updated after)
+      doc.addPage();
+      pageCount++;
+      pageHeader('AI Reasoning — continued');
+      const newY=44;
+      rColY=[newY,newY];
+      colIdx=0;
+    }
+  }
+
+  sorted.forEach(a=>{
+    const crew=CREWS.find(c=>c.id===a.crewId);
+
+    // estimate block height: header (13) + 6 bullets * ~9 each + 4 gap
+    const estH=13+a.reasoning.length*9+4;
+    ensureReasoningPage(estH);
+
+    const xB=rCols[colIdx];
+    let ty=rColY[colIdx];
+
+    // assignment header
+    const[cr,cg,cb]=hr(crew.color);
+    doc.setFillColor(cr,cg,cb);doc.rect(xB,ty,RCOL_W,13,'F');
+    doc.setFont(FONT,'bold');doc.setFontSize(7.5);doc.setTextColor(255,255,255);
+    doc.text(`${a.job.name}`,xB+5,ty+9,{maxWidth:RCOL_W*0.55});
+    doc.setFont(FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(210,235,225);
+    doc.text(`${crew.name}  |  ${mt(a.startTime)}  |  $${a.job.val.toLocaleString()}`,xB+RCOL_W-4,ty+9,{align:'right'});
+    ty+=13;
+
+    // reasoning bullets
+    a.reasoning.forEach(r=>{
+      const lines=doc.splitTextToSize(`• ${r}`,RCOL_W-10);
+      const blockH=lines.length*8+2;
+      // if this bullet would overflow, push both columns to a new page
+      if(ty+blockH>FOOTER_Y){
+        pageFooter(pageCount,pageCount);
+        doc.addPage();
+        pageCount++;
+        pageHeader('AI Reasoning — continued');
+        rColY=[44,44];
+        colIdx=0;
+        ty=44;
+      }
+      fill('#f5f8f6');doc.rect(xB,ty,RCOL_W,blockH,'F');
+      stroke('#c8ddd8');doc.setLineWidth(0.2);doc.line(xB,ty+blockH,xB+RCOL_W,ty+blockH);
+      doc.setFont(FONT,'normal');doc.setFontSize(6.5);ink('#4a6b5e');
+      doc.text(lines,xB+5,ty+7);
+      ty+=blockH;
+    });
+
+    ty+=4;
+    rColY[colIdx]=ty;
+    colIdx=rColY[0]<=rColY[1]?0:1;
+  });
+
+  // update all page footers with correct total now that we know pageCount
+  // jsPDF doesn't support retroactive footer edits, so redraw footer on last page
+  pageFooter(pageCount,pageCount);
 
   doc.save(`DispatchIQ_Schedule_${new Date().toISOString().slice(0,10)}.pdf`);
 }
