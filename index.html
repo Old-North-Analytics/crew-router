@@ -669,7 +669,7 @@ function startPlay(){
   if(!assignments.length)return;
   isPlaying=true;
   const btn=document.getElementById('playBtn');
-  btn.textContent='&#9646;&#9646; Pause';btn.classList.add('playing');
+  btn.textContent='&#9646;Pause';btn.classList.add('playing');
   // Reset to start if at end
   if(sliderStep>=STEPS){document.getElementById('mcSlider').value=0;onSlider(0);}
   // 13 seconds total for STEPS=52 steps => interval = 13000/52 = 250ms per step
